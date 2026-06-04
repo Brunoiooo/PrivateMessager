@@ -1,0 +1,24 @@
+diff --git a/node_modules/react-native-rsa-native/android/build.gradle b/node_modules/react-native-rsa-native/android/build.gradle
+index 92617a6..7ed2439 100644
+--- a/node_modules/react-native-rsa-native/android/build.gradle
++++ b/node_modules/react-native-rsa-native/android/build.gradle
+@@ -9,10 +9,6 @@ buildscript {
+     if (project == rootProject) {
+         repositories {
+             google()
+-            jcenter()
+-            maven {
+-                url "https://maven.fabric.io/public"
+-            }
+             mavenCentral()
+         }
+ 
+@@ -45,7 +41,7 @@ allprojects {
+     repositories {
+         mavenLocal()
+         google()
+-        jcenter()
++        mavenCentral()
+         maven {
+             // All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
+             url "$rootDir/../node_modules/react-native/android"
