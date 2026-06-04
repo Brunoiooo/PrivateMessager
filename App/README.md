@@ -1,97 +1,239 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# App
 
-# Getting Started
+React Native mobile client for Messager (Android & iOS). The app handles key generation, PIN-protected private key storage, RSA challenge-response login, and end-to-end encrypted messaging — all cryptographic operations happen on-device.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## Features
 
-## Step 1: Start Metro
+- **Multiple local profiles** — multiple identities on one device
+- **RSA key pair generation** — 2048-bit keys (1024-bit in dev mode for emulator speed)
+- **PIN-protected private key** — PBKDF2-SHA256 (150 000 iterations) + AES-256-GCM
+- **Challenge-response login** — signs server challenge with RSA private key, receives JWT
+- **Contact discovery** — search by username and tag
+- **Chain-key message encryption** — AES-256-GCM per message; forward secrecy via key derivation
+- **Local SQLite cache** — conversations and chain key state persist across sessions
+- **Delta sync** — HTTP polling or WebSocket for new messages
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+## Project Structure
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+```
+App/
+├── App.tsx                        # Root state machine (gateway | registration | login | chat)
+├── index.js                       # React Native entry point
+├── src/
+│   ├── components/                # Reusable UI components
+│   │   ├── ActionButton.tsx
+│   │   ├── AuthCard.tsx
+│   │   ├── DropdownMenu.tsx
+│   │   ├── FormField.tsx
+│   │   ├── ProfilePicker.tsx
+│   │   └── ScreenShell.tsx
+│   ├── config/
+│   │   └── env.ts                 # API base URL from react-native-dotenv
+│   ├── context/
+│   │   ├── LoadingOverlayContext.tsx
+│   │   └── PrivateKeySessionContext.tsx   # In-memory unlocked private key
+│   ├── pages/
+│   │   ├── AuthGatewayPage.tsx    # Profile selection screen
+│   │   ├── RegistrationPage.tsx   # Key generation & upload
+│   │   ├── LocalLoginPage.tsx     # PIN entry → private key unlock
+│   │   ├── MessagingPage.tsx      # Contact list + conversation threads
+│   │   └── ConversationPage.tsx   # Chat UI for a single peer
+│   ├── services/
+│   │   ├── authApi.ts             # HTTP calls: register, challenge, login
+│   │   ├── messagingApi.ts        # HTTP calls: send/fetch messages & key exchanges
+│   │   ├── chatCrypto.ts          # AES-256-GCM encrypt/decrypt; chain key derivation
+│   │   ├── registrationCrypto.ts  # RSA key generation; PIN-based key protection
+│   │   ├── profileStore.ts        # SQLite: profile & app state management
+│   │   ├── chatStore.ts           # SQLite: message cache & conversation state
+│   │   └── registrationStore.ts   # SQLite: registration bundle persistence
+│   └── types/
+│       ├── profile.ts
+│       ├── registration.ts
+│       ├── messaging.ts
+│       └── env.d.ts
+├── android/                       # Android native project
+├── ios/                           # iOS native project
+├── patches/                       # Dependency patches (patch-package)
+├── package.json
+└── Dockerfile.android             # Android APK build container
+```
 
-```sh
-# Using npm
+## Prerequisites
+
+Complete the [React Native environment setup](https://reactnative.dev/docs/set-up-your-environment) for your target platform before proceeding.
+
+**Required tools:**
+- Node.js 20+ / npm 10+
+- JDK 17 (Android)
+- Android Studio + SDK (Android)
+- Xcode 15+ (iOS / macOS only)
+
+## Getting Started
+
+```bash
+cd App
+npm install
+```
+
+### Start Metro bundler
+
+```bash
 npm start
-
-# OR using Yarn
-yarn start
 ```
 
-## Step 2: Build and run your app
+### Run on Android
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
-
-```sh
-# Using npm
+```bash
 npm run android
-
-# OR using Yarn
-yarn android
 ```
 
-### iOS
+If using a physical device, forward the API port:
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
-```sh
-bundle install
+```bash
+adb reverse tcp:5000 tcp:5000
 ```
 
-Then, and every time you update your native dependencies, run:
+### Run on iOS (macOS only)
 
-```sh
-bundle exec pod install
-```
-
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
-
-```sh
-# Using npm
+```bash
+cd ios && pod install && cd ..
 npm run ios
-
-# OR using Yarn
-yarn ios
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+## Configuration
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+Create a `.env` file in `App/`:
 
-## Step 3: Modify your app
+```env
+MESSAGER_API_BASE_URL=http://10.0.2.2:5000
+```
 
-Now that you have successfully run the app, let's make changes!
+- Android emulator: `http://10.0.2.2:5000` (host loopback)
+- Physical Android device: `http://<your-machine-ip>:5000`
+- iOS simulator: `http://localhost:5000`
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
+The variable is read via `react-native-dotenv` and typed in `src/types/env.d.ts`.
 
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
+## Cryptography
 
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
+### Private Key Protection
 
-## Congratulations! :tada:
+```
+User PIN
+  ↓  PBKDF2-SHA256 (150 000 iterations, 32-byte key)
+  ↓  AES-256-GCM encrypt(private_key_pem)
+  ↓  stored: { salt, iv, tag, ciphertext }  (all Base64, in SQLite)
+```
 
-You've successfully run and modified your React Native App. :partying_face:
+The private key is decrypted into memory only during an active session and cleared on logout.
 
-### Now what?
+### Message Encryption (Chain Keys)
 
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
+```
+First message:
+  RSA-OAEP(recipient_public_key, chain_key_seed)  →  KeyExchange record
 
-# Troubleshooting
+Subsequent messages:
+  chain_key_n  →  SHA-256(chain_key_{n-1})
+  AES-256-GCM(chain_key_n, plaintext)  →  EncryptedContent
+```
 
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
+Each conversation maintains an independent outbound and inbound chain key stored in SQLite (`conversation_state` table).
 
-# Learn More
+## Local Database (SQLite)
 
-To learn more about React Native, take a look at the following resources:
+File: `messager_profiles.db`
 
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+| Table | Description |
+|-------|-------------|
+| `profiles` | Local user profiles; `registration_json` holds key material |
+| `app_state` | Active profile pointer |
+| `known_profiles` | Contact list per profile |
+| `conversation_state` | Chain key state per peer |
+| `messages_local` | Message cache; plaintext stored after decryption |
+| `key_exchanges_local` | Key exchange cache |
+| `sync_state` | `last_synced_at_utc` timestamp |
+
+## Building a Release APK with Docker
+
+The `android-builder` service in `docker-compose.yml` builds a release APK inside a Linux container — no local Android SDK required.
+
+### Prerequisites
+
+Create a `.env` file in the **repo root** (next to `docker-compose.yml`) with all required variables:
+
+```env
+# PostgreSQL
+POSTGRES_DB=messager
+POSTGRES_USER=messager
+POSTGRES_PASSWORD=changeme
+
+# API
+API_BIND_IP=0.0.0.0
+API_BIND_PORT=8080
+JWT_SIGNING_KEY=<min-32-char-secret>
+
+# Mobile — URL the APK will use to reach the API
+MESSAGER_API_BASE_URL=http://<your-server-ip>:8080
+```
+
+### Run the build
+
+```bash
+docker-compose --profile release up --build
+```
+
+This will:
+1. Start PostgreSQL and the API server
+2. Start the `android-builder` container
+3. Run `npm ci` inside the container
+4. Write `.env` with `MESSAGER_API_BASE_URL` baked into the APK
+5. Run `./gradlew assembleRelease`
+6. Copy the resulting APK to `releases/android/` on the host
+
+### Output
+
+```
+releases/
+└── android/
+    └── app-release.apk
+```
+
+Install on a device:
+
+```bash
+adb install releases/android/app-release.apk
+```
+
+### Build only (skip API startup)
+
+If you only need the APK and already have a running API elsewhere:
+
+```bash
+docker-compose --profile release run --rm android-builder
+```
+
+### Gradle cache
+
+The `android-gradle` Docker volume caches Gradle dependencies between builds. A clean first build can take 10–20 minutes; subsequent builds are significantly faster.
+
+## Running Tests
+
+```bash
+npm test
+```
+
+Tests are located in `src/__tests__/` and use Jest + React Native Testing Library.
+
+## Key Dependencies
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| react-native | 0.85.3 | Mobile framework |
+| react | 19.2.3 | UI rendering |
+| typescript | 5.8.3 | Type safety |
+| node-forge | 1.3.1 | AES-GCM, PBKDF2, SHA |
+| react-native-rsa-native | 2.0.5 | Native RSA key generation & signing |
+| react-native-sqlite-storage | — | Local SQLite database |
+| @react-native-async-storage/async-storage | 2.2.0 | Key-value storage |
+| react-native-dotenv | — | Environment variable injection |
