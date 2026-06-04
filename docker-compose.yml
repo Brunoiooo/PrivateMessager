@@ -1,0 +1,69 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - messager-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: API/Dockerfile
+    ports:
+      - "${API_BIND_PORT}:${API_BIND_PORT}"
+    environment:
+      API_BIND_IP: ${API_BIND_IP}
+      API_BIND_PORT: ${API_BIND_PORT}
+      POSTGRES_CONNECTION_STRING: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY}
+    networks:
+      - messager-net
+    depends_on:
+      db:
+        condition: service_healthy
+
+  android-builder:
+    build:
+      context: App
+      dockerfile: Dockerfile.android
+    volumes:
+      - ./App:/app # source code from host
+      - /app/node_modules # isolate node_modules from Windows host
+      - android-gradle:/root/.gradle # gradle cache between runs
+      - ./releases/android:/releases # APK output to host
+    environment:
+      MESSAGER_API_BASE_URL: ${MESSAGER_API_BASE_URL}
+    command: >
+      sh -c "
+        npm ci &&
+        printf 'MESSAGER_API_BASE_URL=%s\n' \"$$MESSAGER_API_BASE_URL\" > /app/.env &&
+        cd android &&
+        ./gradlew assembleRelease --no-daemon &&
+        find /app/android/app/build/outputs/apk/release -name '*.apk' -exec cp {} /releases/ \;
+      "
+    networks:
+      - messager-net
+    depends_on:
+      api:
+        condition: service_started
+    restart: "no"
+    profiles:
+      - release
+
+networks:
+  messager-net:
+    driver: bridge
+
+volumes:
+  db-data:
+  android-gradle:
