@@ -1,63 +1,73 @@
-using Application;
+using Application.DTOs;
+using Application.Interfaces;
 using Domain;
 using Infrastructure.Persistence;
+using Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
-using System.Reflection;
 
 namespace Infrastructure.Services;
 
 public sealed class PublicKeyRepository(MessagerDbContext dbContext) : IPublicKeyRepository
 {
-    private static readonly FieldInfo YourMessagesField =
-        typeof(PublicKey).GetField("_yourMessages", BindingFlags.Instance | BindingFlags.NonPublic)
-        ?? throw new MissingFieldException(typeof(PublicKey).FullName, "_yourMessages");
-
-    private static readonly FieldInfo YourKeyExchangesField =
-        typeof(PublicKey).GetField("_yourKeyExchanges", BindingFlags.Instance | BindingFlags.NonPublic)
-        ?? throw new MissingFieldException(typeof(PublicKey).FullName, "_yourKeyExchanges");
-
-    private readonly MessagerDbContext _dbContext = dbContext;
-
-    public PublicKey GetRequired(string fingerprintSha512)
+    public async Task<PublicKey?> FindAsync(string fingerprintSha512, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(fingerprintSha512);
 
-        Persistence.Models.PublicKeyRecord record = _dbContext.PublicKeys
-            .SingleOrDefault(x => x.FingerprintSha512 == fingerprintSha512)
-            ?? throw new InvalidOperationException("Public key not found.");
+        PublicKeyRecord? record = await dbContext.PublicKeys
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.FingerprintSha512 == fingerprintSha512, ct);
 
-        PublicKey publicKey = new(record.Der, record.FingerprintSha512, record.UserName, record.UserTag);
+        return record is null ? null : new PublicKey(record.Der, record.FingerprintSha512, record.UserName, record.UserTag);
+    }
 
-        List<Persistence.Models.KeyExchangeRecord> sentKeyExchanges = _dbContext.KeyExchanges
-            .Where(x => x.FromPublicKey == fingerprintSha512)
-            .ToList();
+    public Task<bool> ExistsAsync(string fingerprintSha512, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(fingerprintSha512);
+        return dbContext.PublicKeys.AnyAsync(x => x.FingerprintSha512 == fingerprintSha512, ct);
+    }
 
-        foreach (Persistence.Models.KeyExchangeRecord keyExchange in sentKeyExchanges)
-            publicKey.AddKeyExchange(keyExchange.ToPublicKey, keyExchange.EncryptedPrivateKey);
+    public async Task AddAsync(PublicKey publicKey, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(publicKey);
 
-        List<Persistence.Models.KeyExchangeRecord> receivedKeyExchanges = _dbContext.KeyExchanges
-            .Where(x => x.ToPublicKey == fingerprintSha512)
-            .ToList();
+        DateTime now = DateTime.UtcNow;
+        dbContext.PublicKeys.Add(new PublicKeyRecord
+        {
+            FingerprintSha512 = publicKey.FingerprintSha512,
+            Der = publicKey.Der,
+            UserName = publicKey.UserName,
+            UserTag = publicKey.UserTag,
+            CreatedAt = now,
+            UpdatedAt = now
+        });
 
-        List<KeyExchange> yourKeyExchanges = (List<KeyExchange>)YourKeyExchangesField.GetValue(publicKey)!;
-        foreach (Persistence.Models.KeyExchangeRecord keyExchange in receivedKeyExchanges)
-            yourKeyExchanges.Add(new KeyExchange(keyExchange.FromPublicKey, keyExchange.ToPublicKey, keyExchange.EncryptedPrivateKey));
+        await dbContext.SaveChangesAsync(ct);
+    }
 
-        List<Persistence.Models.MessageRecord> sentMessages = _dbContext.Messages
-            .Where(x => x.FromPublicKey == fingerprintSha512)
-            .ToList();
+    public async Task<IReadOnlyList<PublicKeyProfileDto>> SearchAsync(string userNamePattern, uint? userTag, int limit, CancellationToken ct = default)
+    {
+        IQueryable<PublicKeyRecord> query = dbContext.PublicKeys
+            .Where(x => EF.Functions.ILike(x.UserName, $"%{userNamePattern}%", "\\"));
 
-        foreach (Persistence.Models.MessageRecord message in sentMessages)
-            publicKey.SendMessage(message.ToPublicKey, message.EncryptedContent, message.MessageHash);
+        if (userTag.HasValue)
+            query = query.Where(x => x.UserTag == userTag.Value);
 
-        List<Persistence.Models.MessageRecord> receivedMessages = _dbContext.Messages
-            .Where(x => x.ToPublicKey == fingerprintSha512)
-            .ToList();
+        return await query
+            .OrderBy(x => x.UserName)
+            .ThenBy(x => x.UserTag)
+            .ThenBy(x => x.FingerprintSha512)
+            .Take(limit)
+            .Select(x => new PublicKeyProfileDto(x.FingerprintSha512, x.UserName, x.UserTag, x.Der))
+            .ToListAsync(ct);
+    }
 
-        List<Message> yourMessages = (List<Message>)YourMessagesField.GetValue(publicKey)!;
-        foreach (Persistence.Models.MessageRecord message in receivedMessages)
-            yourMessages.Add(new Message(message.FromPublicKey, message.ToPublicKey, message.EncryptedContent, message.MessageHash));
+    public async Task<IReadOnlyList<PublicKeyProfileDto>> GetByFingerprintsAsync(IEnumerable<string> fingerprints, CancellationToken ct = default)
+    {
+        List<string> fingerprintList = fingerprints.Distinct().ToList();
 
-        return publicKey;
+        return await dbContext.PublicKeys
+            .Where(x => fingerprintList.Contains(x.FingerprintSha512))
+            .Select(x => new PublicKeyProfileDto(x.FingerprintSha512, x.UserName, x.UserTag, x.Der))
+            .ToListAsync(ct);
     }
 }

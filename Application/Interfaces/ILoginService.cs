@@ -1,6 +1,10 @@
-namespace Application;
+namespace Application.Interfaces;
 
 public interface ILoginService
 {
-    string Login(string fingerprintSha512, byte[] challenge, byte[] signature);
+    Task ValidateAndConsumeAsync(
+        string fingerprintSha512,
+        byte[] challenge,
+        byte[] signature,
+        CancellationToken ct = default);
 }

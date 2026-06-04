@@ -3,9 +3,9 @@ using System.Security.Claims;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
 
-namespace API.Security;
+namespace Api.Security;
 
-internal sealed class JwtTokenIssuer(string signingKey)
+public sealed class JwtTokenIssuer(string signingKey)
 {
     public const string Issuer = "messager-api";
     public const string Audience = "messager-client";
@@ -16,11 +16,6 @@ internal sealed class JwtTokenIssuer(string signingKey)
     {
         DateTime expiresAtUtc = DateTime.UtcNow.AddHours(12);
 
-        List<Claim> claims =
-        [
-            new(ClaimTypes.NameIdentifier, fingerprintSha512)
-        ];
-
         SigningCredentials credentials = new(
             new SymmetricSecurityKey(_keyBytes),
             SecurityAlgorithms.HmacSha256);
@@ -28,11 +23,10 @@ internal sealed class JwtTokenIssuer(string signingKey)
         JwtSecurityToken jwt = new(
             issuer: Issuer,
             audience: Audience,
-            claims: claims,
+            claims: [new Claim(ClaimTypes.NameIdentifier, fingerprintSha512)],
             expires: expiresAtUtc,
             signingCredentials: credentials);
 
-        string token = new JwtSecurityTokenHandler().WriteToken(jwt);
-        return (token, expiresAtUtc);
+        return (new JwtSecurityTokenHandler().WriteToken(jwt), expiresAtUtc);
     }
 }
