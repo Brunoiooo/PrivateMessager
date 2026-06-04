@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 
-namespace API.Realtime;
+namespace Api.Realtime;
 
 internal sealed class SyncNotificationHub
 {
@@ -22,8 +22,7 @@ internal sealed class SyncNotificationHub
 
     public long GetVersion(string ownerFingerprint, string? peerFingerprint)
     {
-        string streamKey = BuildStreamKey(ownerFingerprint, peerFingerprint);
-        StreamState state = GetOrCreateState(streamKey);
+        StreamState state = GetOrCreateState(BuildStreamKey(ownerFingerprint, peerFingerprint));
         return Volatile.Read(ref state.Version);
     }
 
@@ -33,75 +32,52 @@ internal sealed class SyncNotificationHub
         long lastSeenVersion,
         CancellationToken cancellationToken)
     {
-        string streamKey = BuildStreamKey(ownerFingerprint, peerFingerprint);
-        StreamState state = GetOrCreateState(streamKey);
+        StreamState state = GetOrCreateState(BuildStreamKey(ownerFingerprint, peerFingerprint));
 
-        long currentVersion = Volatile.Read(ref state.Version);
-        if (currentVersion > lastSeenVersion)
-        {
-            return currentVersion;
-        }
+        long current = Volatile.Read(ref state.Version);
+        if (current > lastSeenVersion)
+            return current;
 
         while (await state.SignalChannel.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            while (state.SignalChannel.Reader.TryRead(out long notifiedVersion))
+            while (state.SignalChannel.Reader.TryRead(out long notified))
             {
-                if (notifiedVersion > lastSeenVersion)
-                {
-                    return notifiedVersion;
-                }
+                if (notified > lastSeenVersion)
+                    return notified;
             }
 
-            currentVersion = Volatile.Read(ref state.Version);
-            if (currentVersion > lastSeenVersion)
-            {
-                return currentVersion;
-            }
+            current = Volatile.Read(ref state.Version);
+            if (current > lastSeenVersion)
+                return current;
         }
 
         return lastSeenVersion;
     }
 
-    public void NotifyMessage(string fromPublicKey, string toPublicKey)
-    {
+    public void NotifyMessage(string fromPublicKey, string toPublicKey) =>
         NotifyPair(fromPublicKey, toPublicKey);
-    }
 
-    public void NotifyKeyExchange(string fromPublicKey, string toPublicKey)
-    {
+    public void NotifyKeyExchange(string fromPublicKey, string toPublicKey) =>
         NotifyPair(fromPublicKey, toPublicKey);
-    }
 
-    private void NotifyPair(string fromPublicKey, string toPublicKey)
+    private void NotifyPair(string from, string to)
     {
-        Notify(fromPublicKey, null);
-        Notify(toPublicKey, null);
-
-        Notify(fromPublicKey, toPublicKey);
-        Notify(toPublicKey, fromPublicKey);
+        Notify(from, null);
+        Notify(to, null);
+        Notify(from, to);
+        Notify(to, from);
     }
 
-    private void Notify(string ownerFingerprint, string? peerFingerprint)
+    private void Notify(string owner, string? peer)
     {
-        string streamKey = BuildStreamKey(ownerFingerprint, peerFingerprint);
-        StreamState state = GetOrCreateState(streamKey);
-
-        long nextVersion = Interlocked.Increment(ref state.Version);
-        state.SignalChannel.Writer.TryWrite(nextVersion);
+        StreamState state = GetOrCreateState(BuildStreamKey(owner, peer));
+        long next = Interlocked.Increment(ref state.Version);
+        state.SignalChannel.Writer.TryWrite(next);
     }
 
-    private StreamState GetOrCreateState(string streamKey)
-    {
-        return _streams.GetOrAdd(streamKey, _ => new StreamState());
-    }
+    private StreamState GetOrCreateState(string key) =>
+        _streams.GetOrAdd(key, _ => new StreamState());
 
-    private static string BuildStreamKey(string ownerFingerprint, string? peerFingerprint)
-    {
-        if (string.IsNullOrWhiteSpace(peerFingerprint))
-        {
-            return $"inbox:{ownerFingerprint}";
-        }
-
-        return $"conversation:{ownerFingerprint}|{peerFingerprint}";
-    }
+    private static string BuildStreamKey(string owner, string? peer) =>
+        peer is null ? $"inbox:{owner}" : $"conversation:{owner}|{peer}";
 }

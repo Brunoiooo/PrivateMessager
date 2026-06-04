@@ -1,4 +1,4 @@
-namespace API.Contracts;
+namespace Api.Contracts;
 
 public sealed record SyncDeltaResponse(
     DateTime ServerTimeUtc,

@@ -1,4 +1,4 @@
-namespace API.Contracts;
+namespace Api.Contracts;
 
 public sealed record RegisterRequest(string DerBase64, string UserName, uint UserTag);
 public sealed record RegisterResponse(string FingerprintSha512, string UserName, uint UserTag);

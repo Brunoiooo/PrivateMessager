@@ -1,50 +1,48 @@
-using Application;
-using Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
+using Application.Exceptions;
+using Application.Interfaces;
+using Domain;
 using System.Security.Cryptography;
 
 namespace Infrastructure.Services;
 
-public sealed class LoginService(MessagerDbContext dbContext) : ILoginService
+public sealed class LoginService(
+    IPublicKeyRepository publicKeyRepository,
+    ILoginChallengeService loginChallengeService) : ILoginService
 {
-    private readonly MessagerDbContext _dbContext = dbContext;
-
-    public string Login(string fingerprintSha512, byte[] challenge, byte[] signature)
+    public async Task ValidateAndConsumeAsync(
+        string fingerprintSha512,
+        byte[] challenge,
+        byte[] signature,
+        CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(fingerprintSha512);
         ArgumentNullException.ThrowIfNull(challenge);
         ArgumentNullException.ThrowIfNull(signature);
 
-        DateTime now = DateTime.UtcNow;
+        PublicKey? publicKey = await publicKeyRepository.FindAsync(fingerprintSha512, ct);
+        if (publicKey is null)
+            throw new NotFoundException($"Public key '{fingerprintSha512[..8]}...' not found.");
 
-        Domain.PublicKey publicKey = new PublicKeyRepository(_dbContext).GetRequired(fingerprintSha512);
+        await loginChallengeService.ConsumeValidChallengeAsync(fingerprintSha512, challenge, ct);
 
-        Infrastructure.Persistence.Models.LoginChallengeRecord challengeRecord = _dbContext.LoginChallenges
-            .SingleOrDefault(x =>
-                x.FingerprintSha512 == fingerprintSha512 &&
-                x.ConsumedAt == null &&
-                x.ExpiresAt > now &&
-                x.Challenge == challenge)
-            ?? throw new InvalidOperationException("Challenge is invalid or expired.");
+        VerifySignature(publicKey.Der, challenge, signature);
+    }
 
+    private static void VerifySignature(byte[] der, byte[] challenge, byte[] signature)
+    {
         using RSA rsa = RSA.Create();
 
         try
         {
-            rsa.ImportSubjectPublicKeyInfo(publicKey.Der, out _);
+            rsa.ImportSubjectPublicKeyInfo(der, out _);
         }
         catch (CryptographicException)
         {
-            rsa.ImportRSAPublicKey(publicKey.Der, out _);
+            rsa.ImportRSAPublicKey(der, out _);
         }
 
-        bool verified = rsa.VerifyData(challenge, signature, HashAlgorithmName.SHA512, RSASignaturePadding.Pkcs1);
-        if (!verified)
-            throw new InvalidOperationException("Invalid signature.");
-
-        challengeRecord.ConsumedAt = now;
-        _dbContext.SaveChanges();
-
-        return Guid.NewGuid().ToString("N");
+        bool valid = rsa.VerifyData(challenge, signature, HashAlgorithmName.SHA512, RSASignaturePadding.Pkcs1);
+        if (!valid)
+            throw new UnauthorizedException("Signature verification failed.");
     }
 }
