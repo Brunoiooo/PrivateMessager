@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Net;
 using System.Text;
 using System.Threading.RateLimiting;
+using API.BackgroundServices;
 using API.Endpoints;
 using API.Realtime;
 using API.Security;
@@ -109,6 +110,7 @@ builder.Services.AddScoped<SendMessageHandler>();
 builder.Services.AddScoped<GetMessagesHandler>();
 builder.Services.AddScoped<SendKeyExchangeHandler>();
 builder.Services.AddScoped<GetKeyExchangesHandler>();
+builder.Services.AddHostedService<MessageCleanupService>();
 
 WebApplication app = builder.Build();
 
@@ -132,5 +134,6 @@ app.MapMessageEndpoints();
 app.MapKeyExchangeEndpoints();
 app.MapPublicKeyEndpoints();
 app.MapSyncEndpoints();
+app.MapPreKeyEndpoints();
 
 app.Run();

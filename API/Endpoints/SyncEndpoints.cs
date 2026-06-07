@@ -297,7 +297,8 @@ internal static class SyncEndpoints
                 x.ToPublicKey,
                 Convert.ToBase64String(x.EncryptedContent),
                 x.MessageHash,
-                x.CreatedAt))
+                x.CreatedAt,
+                x.SignalMessageType))
             .ToList();
 
         List<KeyExchangeResponse> keyExchanges = keyExchangeRecords

@@ -26,6 +26,12 @@ import {
   generateChainSeedBase64,
 } from '../services/chatCrypto';
 import {
+  decryptWithSignal,
+  encryptWithSignal,
+  ensureSignalIdentity,
+  initSignalProtocol,
+} from '../services/signalStore';
+import {
   getConversationState,
   getLastSyncedAtUtc,
   initializeChatStore,
@@ -40,6 +46,7 @@ import {
   upsertMessage,
 } from '../services/chatStore';
 import {
+  ackMessage,
   openConversationSocket,
   openSyncSocket,
   searchProfiles,
@@ -55,12 +62,14 @@ import {
   SyncDelta,
 } from '../types/messaging';
 import { StoredRegistration } from '../types/registration';
+import { usePrivateKeySession } from '../context/PrivateKeySessionContext';
 
 type MessagingPageProps = {
   savedRegistration: StoredRegistration;
   session: JwtSession;
   privateKeyPem: string;
   onLogout: () => void;
+  onGoToSecuritySettings: () => void;
 };
 
 function getConversationInitials(userName: string): string {
@@ -126,9 +135,11 @@ export function MessagingPage({
   session,
   privateKeyPem,
   onLogout,
+  onGoToSecuritySettings,
 }: MessagingPageProps) {
   const ownerFingerprint = savedRegistration.fingerprintSha512;
   const insets = useSafeAreaInsets();
+  const { storageKey } = usePrivateKeySession();
 
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('Połączono. Możesz wyszukiwać profile.');
@@ -196,10 +207,11 @@ export function MessagingPage({
       const messages = await listConversationMessages(
         ownerFingerprint,
         peerFingerprint,
+        storageKey,
       );
       setConversation(messages);
     },
-    [ownerFingerprint],
+    [ownerFingerprint, storageKey],
   );
 
   const applyDelta = useCallback(
@@ -232,13 +244,14 @@ export function MessagingPage({
           const currentState = await getConversationState(
             ownerFingerprint,
             keyExchange.fromPublicKey,
+            storageKey,
           );
 
           await saveConversationState(ownerFingerprint, {
             peerFingerprint: keyExchange.fromPublicKey,
             outgoingChainKeyBase64: currentState.outgoingChainKeyBase64,
             incomingChainKeyBase64: incomingSeed,
-          });
+          }, storageKey);
         } catch {
           // Ignore invalid key exchange payloads from external clients.
         }
@@ -255,29 +268,41 @@ export function MessagingPage({
         if (message.toPublicKey === ownerFingerprint) {
           await markFriend(ownerFingerprint, message.fromPublicKey);
 
-          const state = await getConversationState(
-            ownerFingerprint,
-            peerFingerprint,
-          );
-
-          if (state.incomingChainKeyBase64) {
-            const nextIncomingKey = deriveNextChainKeyBase64(
-              state.incomingChainKeyBase64,
+          if (message.signalMessageType != null) {
+            // Signal Protocol decrypt path.
+            plaintext = await decryptWithSignal(
+              message.encryptedContentBase64,
+              message.signalMessageType,
+              ownerFingerprint,
+              peerFingerprint,
+            );
+          } else {
+            // Legacy chain-key decrypt path.
+            const state = await getConversationState(
+              ownerFingerprint,
+              peerFingerprint,
+              storageKey,
             );
 
-            try {
-              plaintext = decryptMessageWithChainKey(
-                message.encryptedContentBase64,
-                nextIncomingKey,
+            if (state.incomingChainKeyBase64) {
+              const nextIncomingKey = deriveNextChainKeyBase64(
+                state.incomingChainKeyBase64,
               );
 
-              await saveConversationState(ownerFingerprint, {
-                peerFingerprint,
-                outgoingChainKeyBase64: state.outgoingChainKeyBase64,
-                incomingChainKeyBase64: nextIncomingKey,
-              });
-            } catch {
-              plaintext = null;
+              try {
+                plaintext = decryptMessageWithChainKey(
+                  message.encryptedContentBase64,
+                  nextIncomingKey,
+                );
+
+                await saveConversationState(ownerFingerprint, {
+                  peerFingerprint,
+                  outgoingChainKeyBase64: state.outgoingChainKeyBase64,
+                  incomingChainKeyBase64: nextIncomingKey,
+                }, storageKey);
+              } catch {
+                plaintext = null;
+              }
             }
           }
         }
@@ -291,7 +316,17 @@ export function MessagingPage({
           encryptedContentBase64: message.encryptedContentBase64,
           plaintext,
           createdAt: message.createdAt,
+          storageKey,
+          signalMessageType: message.signalMessageType,
         });
+
+        if (message.toPublicKey === ownerFingerprint) {
+          void ackMessage({
+            apiBaseUrl: savedRegistration.apiBaseUrl,
+            token: session.token,
+            messageHash: message.messageHash,
+          });
+        }
       }
 
       await setLastSyncedAtUtc(ownerFingerprint, delta.serverTimeUtc);
@@ -306,6 +341,9 @@ export function MessagingPage({
       ownerFingerprint,
       privateKeyPem,
       refreshConversationPreviews,
+      savedRegistration.apiBaseUrl,
+      session.token,
+      storageKey,
     ],
   );
 
@@ -328,7 +366,14 @@ export function MessagingPage({
   useEffect(() => {
     let cancelled = false;
 
+    initSignalProtocol();
+
     initializeChatStore()
+      .then(() => ensureSignalIdentity(
+        ownerFingerprint,
+        savedRegistration.apiBaseUrl,
+        session.token,
+      ))
       .then(() => refreshConversationPreviews())
       .then(() => runSync())
       .then(() => {
@@ -535,6 +580,7 @@ export function MessagingPage({
     const currentState = await getConversationState(
       ownerFingerprint,
       peer.fingerprintSha512,
+      storageKey,
     );
 
     if (currentState.outgoingChainKeyBase64) {
@@ -559,7 +605,7 @@ export function MessagingPage({
       peerFingerprint: peer.fingerprintSha512,
       outgoingChainKeyBase64: outgoingSeed,
       incomingChainKeyBase64: currentState.incomingChainKeyBase64,
-    });
+    }, storageKey);
 
     await markFriend(ownerFingerprint, peer.fingerprintSha512);
     await refreshConversationPreviews();
@@ -586,15 +632,43 @@ export function MessagingPage({
     setStatus('Wysyłam pierwszą wiadomość i aktualizuję klucze...');
 
     try {
-      const outgoingSeed = await ensureOutgoingChain(peer);
-      const nextOutgoingKey = deriveNextChainKeyBase64(outgoingSeed);
-
-      const encryptedContentBase64 = encryptMessageWithChainKey(
+      // Try Signal Protocol first; fall back to chain keys if peer has no prekeys.
+      const signalResult = await encryptWithSignal(
         trimmedMessage,
-        nextOutgoingKey,
+        ownerFingerprint,
+        peer.fingerprintSha512,
+        savedRegistration.apiBaseUrl,
+        session.token,
       );
 
-      const messageHash = createMessageHash(encryptedContentBase64);
+      let encryptedContentBase64: string;
+      let messageHash: string;
+      let signalMessageType: number | null;
+
+      if (signalResult) {
+        encryptedContentBase64 = signalResult.encryptedContentBase64;
+        messageHash = createMessageHash(encryptedContentBase64);
+        signalMessageType = signalResult.signalMessageType;
+      } else {
+        // Legacy chain-key path.
+        const outgoingSeed = await ensureOutgoingChain(peer);
+        const nextOutgoingKey = deriveNextChainKeyBase64(outgoingSeed);
+        encryptedContentBase64 = encryptMessageWithChainKey(trimmedMessage, nextOutgoingKey);
+        messageHash = createMessageHash(encryptedContentBase64);
+        signalMessageType = null;
+
+        const currentState = await getConversationState(
+          ownerFingerprint,
+          peer.fingerprintSha512,
+          storageKey,
+        );
+
+        await saveConversationState(ownerFingerprint, {
+          peerFingerprint: peer.fingerprintSha512,
+          outgoingChainKeyBase64: nextOutgoingKey,
+          incomingChainKeyBase64: currentState.incomingChainKeyBase64,
+        }, storageKey);
+      }
 
       await sendMessage({
         apiBaseUrl: savedRegistration.apiBaseUrl,
@@ -602,17 +676,7 @@ export function MessagingPage({
         toPublicKey: peer.fingerprintSha512,
         encryptedContentBase64,
         messageHash,
-      });
-
-      const currentState = await getConversationState(
-        ownerFingerprint,
-        peer.fingerprintSha512,
-      );
-
-      await saveConversationState(ownerFingerprint, {
-        peerFingerprint: peer.fingerprintSha512,
-        outgoingChainKeyBase64: nextOutgoingKey,
-        incomingChainKeyBase64: currentState.incomingChainKeyBase64,
+        signalMessageType,
       });
 
       const createdAt = new Date().toISOString();
@@ -626,6 +690,8 @@ export function MessagingPage({
         encryptedContentBase64,
         plaintext: trimmedMessage,
         createdAt,
+        storageKey,
+        signalMessageType,
       });
 
       await loadConversation(peer.fingerprintSha512);
@@ -672,6 +738,11 @@ export function MessagingPage({
       type: 'info',
       label: 'Status',
       sublabel: status,
+    },
+    {
+      type: 'action',
+      label: 'Ustawienia bezpieczeństwa',
+      onPress: onGoToSecuritySettings,
     },
     { type: 'separator' },
     {

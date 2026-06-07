@@ -8,12 +8,14 @@ import React, {
   useState,
 } from 'react';
 import { AppState, StyleSheet, View } from 'react-native';
+import { deriveStorageKey } from '../services/chatCrypto';
 
 const AUTO_LOCK_AFTER_MS = 5 * 60 * 1000;
 const AUTO_LOCK_CHECK_INTERVAL_MS = 5000;
 
 type PrivateKeySessionContextValue = {
   unlockedPrivateKeyPem: string;
+  storageKey: string;
   setUnlockedPrivateKeyPem: (privateKeyPem: string) => void;
   clearUnlockedPrivateKeyPem: () => void;
   markSessionActivity: () => void;
@@ -31,11 +33,13 @@ export function PrivateKeySessionProvider({
   children,
 }: PrivateKeySessionProviderProps) {
   const [unlockedPrivateKeyPem, setUnlockedPrivateKeyPem] = useState('');
+  const [storageKey, setStorageKey] = useState('');
   const [lastActivityAt, setLastActivityAt] = useState<number | null>(null);
   const [lastAutoLockAt, setLastAutoLockAt] = useState<number | null>(null);
 
   const clearUnlockedPrivateKeyPem = useCallback(() => {
     setUnlockedPrivateKeyPem('');
+    setStorageKey('');
     setLastActivityAt(null);
   }, []);
 
@@ -53,11 +57,13 @@ export function PrivateKeySessionProvider({
     setUnlockedPrivateKeyPem(privateKeyPem);
 
     if (privateKeyPem) {
+      setStorageKey(deriveStorageKey(privateKeyPem));
       setLastActivityAt(Date.now());
       setLastAutoLockAt(null);
       return;
     }
 
+    setStorageKey('');
     setLastActivityAt(null);
   }, []);
 
@@ -72,6 +78,7 @@ export function PrivateKeySessionProvider({
       }
 
       setUnlockedPrivateKeyPem('');
+      setStorageKey('');
       setLastAutoLockAt(Date.now());
       return null;
     });
@@ -110,6 +117,7 @@ export function PrivateKeySessionProvider({
   const value = useMemo<PrivateKeySessionContextValue>(
     () => ({
       unlockedPrivateKeyPem,
+      storageKey,
       setUnlockedPrivateKeyPem: upsertUnlockedPrivateKeyPem,
       clearUnlockedPrivateKeyPem,
       markSessionActivity,
@@ -119,6 +127,7 @@ export function PrivateKeySessionProvider({
       clearUnlockedPrivateKeyPem,
       lastAutoLockAt,
       markSessionActivity,
+      storageKey,
       unlockedPrivateKeyPem,
       upsertUnlockedPrivateKeyPem,
     ],

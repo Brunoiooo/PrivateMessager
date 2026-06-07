@@ -1,25 +1,34 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Keychain from 'react-native-keychain';
 
 import { StoredRegistration } from '../types/registration';
 
-const STORAGE_KEY = 'messager.registration.bundle.v1';
+const KEYCHAIN_SERVICE = 'messager.registration.v1';
 
 export async function loadSavedRegistration(): Promise<StoredRegistration | null> {
-  const storedValue = await AsyncStorage.getItem(STORAGE_KEY);
+  const result = await Keychain.getGenericPassword({
+    service: KEYCHAIN_SERVICE,
+  });
 
-  if (!storedValue) {
+  if (!result) {
     return null;
   }
 
-  return JSON.parse(storedValue) as StoredRegistration;
+  return JSON.parse(result.password) as StoredRegistration;
 }
 
 export async function saveRegistration(
   registration: StoredRegistration,
 ): Promise<void> {
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(registration));
+  await Keychain.setGenericPassword(
+    'registration',
+    JSON.stringify(registration),
+    {
+      service: KEYCHAIN_SERVICE,
+      accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    },
+  );
 }
 
 export async function clearSavedRegistration(): Promise<void> {
-  await AsyncStorage.removeItem(STORAGE_KEY);
+  await Keychain.resetGenericPassword({ service: KEYCHAIN_SERVICE });
 }

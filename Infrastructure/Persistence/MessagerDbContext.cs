@@ -13,6 +13,10 @@ public sealed class MessagerDbContext(DbContextOptions<MessagerDbContext> option
 
     public DbSet<LoginChallengeRecord> LoginChallenges => Set<LoginChallengeRecord>();
 
+    public DbSet<SignedPreKeyRecord> SignedPreKeys => Set<SignedPreKeyRecord>();
+
+    public DbSet<OneTimePreKeyRecord> OneTimePreKeys => Set<OneTimePreKeyRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<PublicKeyRecord>(entity =>
@@ -87,6 +91,36 @@ public sealed class MessagerDbContext(DbContextOptions<MessagerDbContext> option
                 .HasForeignKey(x => x.FingerprintSha512)
                 .HasPrincipalKey(x => x.FingerprintSha512)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<SignedPreKeyRecord>(entity =>
+        {
+            entity.ToTable("signed_prekeys");
+            entity.HasKey(x => new { x.OwnerFingerprint, x.PreKeyId });
+            entity.Property(x => x.OwnerFingerprint).HasMaxLength(128);
+            entity.Property(x => x.PublicKey).HasColumnType("bytea");
+            entity.Property(x => x.Signature).HasColumnType("bytea");
+
+            entity.HasOne<PublicKeyRecord>()
+                .WithMany()
+                .HasForeignKey(x => x.OwnerFingerprint)
+                .HasPrincipalKey(x => x.FingerprintSha512)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<OneTimePreKeyRecord>(entity =>
+        {
+            entity.ToTable("one_time_prekeys");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OwnerFingerprint).HasMaxLength(128);
+            entity.Property(x => x.PublicKey).HasColumnType("bytea");
+            entity.HasIndex(x => new { x.OwnerFingerprint, x.ConsumedAt });
+
+            entity.HasOne<PublicKeyRecord>()
+                .WithMany()
+                .HasForeignKey(x => x.OwnerFingerprint)
+                .HasPrincipalKey(x => x.FingerprintSha512)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

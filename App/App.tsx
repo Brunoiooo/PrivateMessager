@@ -21,6 +21,7 @@ import {
   LocalLoginPage,
   MessagingPage,
   RegistrationPage,
+  SecuritySettingsPage,
 } from './src/pages';
 import { loginWithPrivateKey } from './src/services/authApi';
 import {
@@ -32,12 +33,11 @@ import {
   listProfiles,
   saveRegistrationForProfile,
   setActiveProfile,
-} from './src/services/profileStore';
-import { LocalProfile } from './src/types/profile';
+} from './src/services/profileStore';import { LocalProfile } from './src/types/profile';
 import { JwtSession } from './src/types/messaging';
 import { StoredRegistration } from './src/types/registration';
 
-type AppPage = 'gateway' | 'registration' | 'login' | 'chat';
+type AppPage = 'gateway' | 'registration' | 'login' | 'chat' | 'security-settings';
 
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
@@ -233,6 +233,30 @@ function AppContent() {
           setJwtSession(null);
           clearUnlockedPrivateKeyPem();
           setPage('login');
+        }}
+        onGoToSecuritySettings={() => setPage('security-settings')}
+      />
+    );
+  }
+
+  if (
+    page === 'security-settings' &&
+    savedRegistration &&
+    jwtSession &&
+    unlockedPrivateKeyPem
+  ) {
+    return (
+      <SecuritySettingsPage
+        savedRegistration={savedRegistration}
+        privateKeyPem={unlockedPrivateKeyPem}
+        onBack={() => setPage('chat')}
+        onPinChanged={async updated => {
+          if (!activeProfileId) {
+            return;
+          }
+
+          await saveRegistrationForProfile(activeProfileId, updated);
+          await refreshProfilesAndActiveRegistration(activeProfileId);
         }}
       />
     );

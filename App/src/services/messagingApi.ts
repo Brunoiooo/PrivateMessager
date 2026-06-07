@@ -84,6 +84,7 @@ export async function sendMessage(params: {
   toPublicKey: string;
   encryptedContentBase64: string;
   messageHash: string;
+  signalMessageType?: number | null;
 }): Promise<void> {
   const response = await fetch(`${params.apiBaseUrl}/api/messages/`, {
     method: 'POST',
@@ -95,6 +96,7 @@ export async function sendMessage(params: {
       toPublicKey: params.toPublicKey,
       encryptedContentBase64: params.encryptedContentBase64,
       messageHash: params.messageHash,
+      signalMessageType: params.signalMessageType ?? null,
     }),
   });
 
@@ -266,4 +268,71 @@ function toWebSocketBaseUrl(apiBaseUrl: string): string {
   }
 
   return trimmed;
+}
+
+export async function ackMessage(params: {
+  apiBaseUrl: string;
+  token: string;
+  messageHash: string;
+}): Promise<void> {
+  await fetch(
+    `${params.apiBaseUrl}/api/messages/${params.messageHash}/ack`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${params.token}` },
+    },
+  );
+}
+
+export type PreKeyBundleResponse = {
+  identityKeyDerBase64: string;
+  signedPreKeyId: number;
+  signedPreKeyPublicBase64: string;
+  signatureBase64: string;
+  otpId: string | null;
+  otpPublicBase64: string | null;
+};
+
+export async function fetchPreKeyBundle(params: {
+  apiBaseUrl: string;
+  token: string;
+  fingerprint: string;
+}): Promise<PreKeyBundleResponse | null> {
+  const response = await fetch(
+    `${params.apiBaseUrl}/api/prekeys/${encodeURIComponent(params.fingerprint)}`,
+    { headers: { Authorization: `Bearer ${params.token}` } },
+  );
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return (await response.json().catch(() => null)) as PreKeyBundleResponse | null;
+}
+
+export async function uploadPreKeyBundle(params: {
+  apiBaseUrl: string;
+  token: string;
+  signedPreKeyId: number;
+  signedPreKeyPublicBase64: string;
+  signatureBase64: string;
+  oneTimePreKeys: Array<{ preKeyId: number; publicBase64: string }>;
+}): Promise<void> {
+  await fetch(`${params.apiBaseUrl}/api/prekeys/bundle`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${params.token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      signedPreKeyId: params.signedPreKeyId,
+      signedPreKeyPublicBase64: params.signedPreKeyPublicBase64,
+      signatureBase64: params.signatureBase64,
+      oneTimePreKeys: params.oneTimePreKeys,
+    }),
+  });
 }

@@ -26,6 +26,7 @@ services:
       API_BIND_PORT: ${API_BIND_PORT}
       POSTGRES_CONNECTION_STRING: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       JWT_SIGNING_KEY: ${JWT_SIGNING_KEY}
+      MESSAGE_TTL_DAYS: ${MESSAGE_TTL_DAYS:-30}
     networks:
       - messager-net
     depends_on:
@@ -49,7 +50,7 @@ services:
         printf 'MESSAGER_API_BASE_URL=%s\n' \"$$MESSAGER_API_BASE_URL\" > /app/.env &&
         cd android &&
         ./gradlew assembleRelease --no-daemon &&
-        find /app/android/app/build/outputs/apk/release -name '*.apk' -exec cp {} /releases/ \;
+        cp /app/android/app/build/outputs/apk/release/*.apk /releases/
       "
     networks:
       - messager-net

@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { ActionButton } from '../components/ActionButton';
 import { AuthCard } from '../components/AuthCard';
@@ -7,9 +7,17 @@ import { FormField } from '../components/FormField';
 import { ScreenShell } from '../components/ScreenShell';
 import { useLoadingOverlay } from '../context/LoadingOverlayContext';
 import { usePrivateKeySession } from '../context/PrivateKeySessionContext';
+import {
+  BiometryType,
+  isBiometricAvailable,
+  isBiometricEnabled,
+  unlockWithBiometrics,
+} from '../services/biometricAuth';
 import { decryptPrivateKey } from '../services/registrationCrypto';
 import { LocalProfile } from '../types/profile';
 import { StoredRegistration } from '../types/registration';
+
+const MAX_BIOMETRIC_ATTEMPTS = 5;
 
 type LocalLoginPageProps = {
   activeProfile: LocalProfile | null;
@@ -36,6 +44,26 @@ export function LocalLoginPage({
   const [isProcessing, setIsProcessing] = useState(false);
   const [pinError, setPinError] = useState<string | undefined>(undefined);
   const [formError, setFormError] = useState<string | null>(null);
+  const [biometryType, setBiometryType] = useState<BiometryType>(null);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [showPinForm, setShowPinForm] = useState(false);
+  const biometricAttemptsRef = useRef(0);
+
+  useEffect(() => {
+    void (async () => {
+      const [type, enabled] = await Promise.all([
+        isBiometricAvailable(),
+        isBiometricEnabled(),
+      ]);
+      setBiometryType(type);
+      setBiometricEnabled(enabled);
+
+      if (enabled && type) {
+        void handleBiometricUnlock();
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!savedRegistration) {
@@ -49,11 +77,57 @@ export function LocalLoginPage({
     }
 
     setStatus(
-      'Sesja lokalnego klucza wygasła po bezczynności. Wpisz PIN ponownie.',
+      'Sesja lokalnego klucza wygasła po bezczynności. Zaloguj się ponownie.',
     );
+
+    if (biometricEnabled && biometryType) {
+      void handleBiometricUnlock();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastAutoLockAt]);
 
-  async function handleUnlock() {
+  async function handleBiometricUnlock() {
+    if (!savedRegistration || isProcessing || isLoading) {
+      return;
+    }
+
+    if (biometricAttemptsRef.current >= MAX_BIOMETRIC_ATTEMPTS) {
+      setShowPinForm(true);
+      setStatus('Zbyt wiele nieudanych prób biometrii. Użyj PIN-u.');
+      return;
+    }
+
+    setIsProcessing(true);
+
+    try {
+      const biometricLabel = biometryTypeName(biometryType);
+      setStatus(`Oczekiwanie na ${biometricLabel}...`);
+
+      const privateKeyPem = await unlockWithBiometrics(
+        `Odblokuj Messager (${biometricLabel})`,
+      );
+
+      if (!privateKeyPem) {
+        biometricAttemptsRef.current += 1;
+
+        if (biometricAttemptsRef.current >= MAX_BIOMETRIC_ATTEMPTS) {
+          setShowPinForm(true);
+          setStatus('Zbyt wiele nieudanych prób. Użyj PIN-u.');
+        } else {
+          setStatus('Biometria anulowana. Spróbuj ponownie lub użyj PIN-u.');
+        }
+
+        return;
+      }
+
+      biometricAttemptsRef.current = 0;
+      await finishUnlock(privateKeyPem);
+    } finally {
+      setIsProcessing(false);
+    }
+  }
+
+  async function handlePinUnlock() {
     setPinError(undefined);
     setFormError(null);
 
@@ -77,25 +151,15 @@ export function LocalLoginPage({
 
     try {
       await runWithLoading('Odszyfrowywanie klucza...', async () => {
-        const privateKeyPem = decryptPrivateKey(
-          savedRegistration.privateKey,
-          pin,
-        );
-
-        setUnlockedPrivateKeyPem(privateKeyPem);
-        setStatus('Klucz odszyfrowany. Trwa logowanie do API (JWT)...');
-        showLoading('Logowanie do API (JWT)...');
-        await onAuthenticated(privateKeyPem);
+        const privateKeyPem = decryptPrivateKey(savedRegistration.privateKey, pin);
+        await finishUnlock(privateKeyPem);
       });
-
-      setStatus('Zalogowano do API.');
     } catch (error) {
       setUnlockedPrivateKeyPem('');
       const message =
         error instanceof Error
           ? error.message
           : 'Nie udało się odszyfrować klucza.';
-
       setFormError(message);
       setStatus(message);
     } finally {
@@ -103,11 +167,22 @@ export function LocalLoginPage({
     }
   }
 
+  async function finishUnlock(privateKeyPem: string) {
+    setUnlockedPrivateKeyPem(privateKeyPem);
+    setStatus('Klucz odszyfrowany. Trwa logowanie do API (JWT)...');
+    showLoading('Logowanie do API (JWT)...');
+    await onAuthenticated(privateKeyPem);
+    setStatus('Zalogowano do API.');
+  }
+
+  const showBiometricButton =
+    biometricEnabled && biometryType && !showPinForm && savedRegistration;
+
   return (
     <ScreenShell
       kicker="Messager"
       title="Lokalne logowanie"
-      subtitle="Ten ekran odszyfrowuje zapisany prywatny klucz PIN-em bez wysyłania go na serwer."
+      subtitle="Ten ekran odszyfrowuje zapisany prywatny klucz bez wysyłania go na serwer."
     >
       <AuthCard>
         <Text style={styles.sectionTitle}>Dostęp do klucza prywatnego</Text>
@@ -125,7 +200,6 @@ export function LocalLoginPage({
             <Text style={styles.monoText}>
               {savedRegistration.userName}#{savedRegistration.userTag}
             </Text>
-
             <Text style={styles.summaryLabel}>Fingerprint</Text>
             <Text style={styles.monoText}>
               {savedRegistration.fingerprintSha512}
@@ -133,31 +207,64 @@ export function LocalLoginPage({
           </View>
         ) : (
           <Text style={styles.statusText}>
-            Nie znaleziono zapisanego zestawu kluczy. Najpierw zarejestruj
-            konto.
+            Nie znaleziono zapisanego zestawu kluczy. Najpierw zarejestruj konto.
           </Text>
         )}
 
-        <FormField
-          label="PIN"
-          value={pin}
-          onChangeText={setPin}
-          placeholder="PIN"
-          secureTextEntry
-          autoCapitalize="none"
-          errorMessage={pinError}
-        />
+        {showBiometricButton ? (
+          <>
+            <ActionButton
+              label={`Odblokuj ${biometryTypeName(biometryType)}`}
+              onPress={() => void handleBiometricUnlock()}
+              variant="primary"
+              disabled={isProcessing || isLoading}
+            />
+            <TouchableOpacity
+              style={styles.pinFallbackLink}
+              onPress={() => setShowPinForm(true)}
+            >
+              <Text style={styles.pinFallbackText}>Użyj PIN-u zamiast tego</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <FormField
+              label="PIN"
+              value={pin}
+              onChangeText={setPin}
+              placeholder="PIN"
+              secureTextEntry
+              autoCapitalize="none"
+              errorMessage={pinError}
+            />
 
-        {formError ? (
-          <Text style={styles.formErrorText}>{formError}</Text>
-        ) : null}
+            {formError ? (
+              <Text style={styles.formErrorText}>{formError}</Text>
+            ) : null}
 
-        <ActionButton
-          label="Odszyfruj klucz"
-          onPress={() => void handleUnlock()}
-          variant="primary"
-          disabled={isProcessing || isLoading || !savedRegistration}
-        />
+            <ActionButton
+              label="Odszyfruj klucz"
+              onPress={() => void handlePinUnlock()}
+              variant="primary"
+              disabled={isProcessing || isLoading || !savedRegistration}
+            />
+
+            {biometricEnabled && biometryType && (
+              <TouchableOpacity
+                style={styles.pinFallbackLink}
+                onPress={() => {
+                  setShowPinForm(false);
+                  biometricAttemptsRef.current = 0;
+                  void handleBiometricUnlock();
+                }}
+              >
+                <Text style={styles.pinFallbackText}>
+                  Użyj {biometryTypeName(biometryType)} zamiast tego
+                </Text>
+              </TouchableOpacity>
+            )}
+          </>
+        )}
 
         <ActionButton
           label="Wróć do rejestracji"
@@ -189,6 +296,23 @@ export function LocalLoginPage({
       </AuthCard>
     </ScreenShell>
   );
+}
+
+function biometryTypeName(type: BiometryType): string {
+  if (!type) {
+    return 'biometrię';
+  }
+
+  switch (type) {
+    case 'FaceID':
+      return 'Face ID';
+    case 'TouchID':
+      return 'Touch ID';
+    case 'Fingerprint':
+      return 'odcisk palca';
+    default:
+      return 'biometrię';
+  }
 }
 
 const styles = StyleSheet.create({
@@ -249,5 +373,15 @@ const styles = StyleSheet.create({
       android: 'monospace',
       default: 'monospace',
     }),
+  },
+  pinFallbackLink: {
+    alignSelf: 'center',
+    paddingVertical: 8,
+  },
+  pinFallbackText: {
+    color: '#7DD3FC',
+    fontSize: 13,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
   },
 });

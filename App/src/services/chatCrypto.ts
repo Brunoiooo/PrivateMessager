@@ -4,6 +4,84 @@ const CHAIN_KEY_SIZE = 32;
 const AES_GCM_IV_SIZE = 12;
 const AES_GCM_TAG_SIZE = 16;
 
+// ---------------------------------------------------------------------------
+// Storage key derivation (HKDF-SHA256)
+// Derives a symmetric key from the RSA private key PEM for encrypting local
+// SQLite fields. The key is deterministic so the same private key always
+// produces the same storage key — no additional state needed.
+// ---------------------------------------------------------------------------
+
+export function deriveStorageKey(privateKeyPem: string): string {
+  const ikm = forge.md.sha512
+    .create()
+    .update(privateKeyPem, 'utf8')
+    .digest()
+    .getBytes();
+
+  const hmacExtract = forge.hmac.create();
+  hmacExtract.start('sha256', 'messager-storage-salt-v1');
+  hmacExtract.update(ikm);
+  const prk = hmacExtract.digest().getBytes();
+
+  const hmacExpand = forge.hmac.create();
+  hmacExpand.start('sha256', prk);
+  hmacExpand.update('messager-local-storage\x01');
+  const okm = hmacExpand.digest().getBytes();
+
+  return forge.util.encode64(okm);
+}
+
+export function encryptField(value: string, storageKeyBase64: string): string {
+  const keyBinary = forge.util.decode64(storageKeyBase64);
+  const ivBinary = randomBytes(AES_GCM_IV_SIZE);
+  const cipher = forge.cipher.createCipher('AES-GCM', keyBinary);
+
+  cipher.start({ iv: ivBinary, tagLength: AES_GCM_TAG_SIZE * 8 });
+  cipher.update(forge.util.createBuffer(value, 'utf8'));
+
+  if (!cipher.finish()) {
+    throw new Error('Nie udało się zaszyfrować pola.');
+  }
+
+  const payload = ivBinary + cipher.mode.tag.getBytes() + cipher.output.getBytes();
+  return forge.util.encode64(payload);
+}
+
+export function decryptField(
+  encryptedBase64: string,
+  storageKeyBase64: string,
+): string | null {
+  try {
+    const keyBinary = forge.util.decode64(storageKeyBase64);
+    const payload = forge.util.decode64(encryptedBase64);
+    const minLen = AES_GCM_IV_SIZE + AES_GCM_TAG_SIZE;
+
+    if (payload.length <= minLen) {
+      return null;
+    }
+
+    const ivBinary = payload.slice(0, AES_GCM_IV_SIZE);
+    const tagBinary = payload.slice(AES_GCM_IV_SIZE, minLen);
+    const ciphertextBinary = payload.slice(minLen);
+
+    const decipher = forge.cipher.createDecipher('AES-GCM', keyBinary);
+    decipher.start({
+      iv: ivBinary,
+      tagLength: AES_GCM_TAG_SIZE * 8,
+      tag: forge.util.createBuffer(tagBinary),
+    });
+    decipher.update(forge.util.createBuffer(ciphertextBinary));
+
+    if (!decipher.finish()) {
+      return null;
+    }
+
+    return decipher.output.toString();
+  } catch {
+    return null;
+  }
+}
+
 export function generateChainSeedBase64(): string {
   return forge.util.encode64(randomBytes(CHAIN_KEY_SIZE));
 }
@@ -137,6 +215,20 @@ export function createMessageHash(encryptedContentBase64: string): string {
     .update(forge.util.decode64(encryptedContentBase64), 'raw')
     .digest()
     .toHex();
+}
+
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  return forge.util.encode64(String.fromCharCode(...new Uint8Array(buffer)));
+}
+
+export function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binary = forge.util.decode64(base64);
+  const buf = new ArrayBuffer(binary.length);
+  const view = new Uint8Array(buf);
+  for (let i = 0; i < binary.length; i++) {
+    view[i] = binary.charCodeAt(i);
+  }
+  return buf;
 }
 
 function randomBytes(length: number): string {

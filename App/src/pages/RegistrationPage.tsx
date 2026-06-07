@@ -8,7 +8,14 @@ import { ScreenShell } from '../components/ScreenShell';
 import { API_BASE_URL } from '../config/env';
 import { useLoadingOverlay } from '../context/LoadingOverlayContext';
 import { usePrivateKeySession } from '../context/PrivateKeySessionContext';
-import { generateRegistrationBundle } from '../services/registrationCrypto';
+import {
+  enableBiometricUnlock,
+  isBiometricAvailable,
+} from '../services/biometricAuth';
+import {
+  decryptPrivateKey,
+  generateRegistrationBundle,
+} from '../services/registrationCrypto';
 import { LocalProfile } from '../types/profile';
 import { StoredRegistration } from '../types/registration';
 
@@ -49,6 +56,10 @@ export function RegistrationPage({
   const [isProcessing, setIsProcessing] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<RegistrationFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [pendingBiometricSetup, setPendingBiometricSetup] = useState<{
+    privateKeyPem: string;
+    biometryLabel: string;
+  } | null>(null);
 
   function showStatus(message: string) {
     setStatus(message);
@@ -200,12 +211,28 @@ export function RegistrationPage({
         clearUnlockedPrivateKeyPem();
         await onRegistered(registration);
         registeredFingerprint = registration.fingerprintSha512;
+
+        const biometryType = await isBiometricAvailable();
+
+        if (biometryType) {
+          const label =
+            biometryType === 'FaceID'
+              ? 'Face ID'
+              : biometryType === 'TouchID'
+                ? 'Touch ID'
+                : 'odcisk palca';
+          const privateKeyPem = decryptPrivateKey(registration.privateKey, pin);
+          setPendingBiometricSetup({ privateKeyPem, biometryLabel: label });
+        }
       });
 
       showStatus(
         `Zarejestrowano konto i zapisano zaszyfrowany klucz prywatny. Fingerprint: ${registeredFingerprint}`,
       );
-      onGoToLogin();
+
+      if (!pendingBiometricSetup) {
+        onGoToLogin();
+      }
     } catch (error) {
       const message =
         error instanceof Error
@@ -223,7 +250,7 @@ export function RegistrationPage({
     <ScreenShell
       kicker="Messager"
       title="Rejestracja z własnym kluczem RSA"
-      subtitle="Klucz publiczny trafia do API, a prywatny pozostaje lokalnie w AsyncStorage w postaci zaszyfrowanej PIN-em."
+      subtitle="Klucz publiczny trafia do API, a prywatny pozostaje lokalnie w bezpiecznym magazynie systemowym."
     >
       <AuthCard>
         <Text style={styles.sectionTitle}>Dane rejestracji</Text>
@@ -320,6 +347,42 @@ export function RegistrationPage({
           disabled={!savedRegistration}
         />
       </AuthCard>
+
+      {pendingBiometricSetup ? (
+        <AuthCard>
+          <Text style={styles.sectionTitle}>
+            Włączyć {pendingBiometricSetup.biometryLabel}?
+          </Text>
+          <Text style={styles.statusText}>
+            Możesz odblokować aplikację za pomocą {pendingBiometricSetup.biometryLabel}{' '}
+            zamiast wpisywać PIN. Klucz prywatny zostanie zapisany w bezpiecznym
+            magazynie sprzętowym systemu. PIN pozostaje jako zapasowa metoda.
+          </Text>
+          <ActionButton
+            label={`Włącz ${pendingBiometricSetup.biometryLabel}`}
+            onPress={() => {
+              void (async () => {
+                if (!pendingBiometricSetup) {
+                  return;
+                }
+
+                await enableBiometricUnlock(pendingBiometricSetup.privateKeyPem);
+                setPendingBiometricSetup(null);
+                onGoToLogin();
+              })();
+            }}
+            variant="primary"
+          />
+          <ActionButton
+            label="Nie, tylko PIN"
+            onPress={() => {
+              setPendingBiometricSetup(null);
+              onGoToLogin();
+            }}
+            variant="secondary"
+          />
+        </AuthCard>
+      ) : null}
     </ScreenShell>
   );
 }

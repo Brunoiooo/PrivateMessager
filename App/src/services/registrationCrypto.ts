@@ -72,7 +72,7 @@ export function decryptPrivateKey(
   return decipher.output.toString();
 }
 
-function encryptPrivateKey(
+export function encryptPrivateKey(
   privateKeyPem: string,
   pin: string,
 ): PrivateKeyEnvelope {

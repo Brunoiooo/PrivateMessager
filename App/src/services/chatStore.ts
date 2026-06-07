@@ -6,6 +6,7 @@ import {
   LocalConversationMessage,
   PublicKeyProfile,
 } from '../types/messaging';
+import { decryptField, encryptField } from './chatCrypto';
 
 const DB_NAME = 'messager_profiles.db';
 
@@ -13,7 +14,7 @@ SQLite.enablePromise(true);
 
 let databasePromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
-function getDatabase(): Promise<SQLite.SQLiteDatabase> {
+export function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (!databasePromise) {
     databasePromise = SQLite.openDatabase({
       name: DB_NAME,
@@ -80,6 +81,7 @@ export async function initializeChatStore(): Promise<void> {
       encrypted_content_base64 TEXT NOT NULL,
       plaintext TEXT,
       created_at TEXT NOT NULL,
+      signal_message_type INTEGER,
       PRIMARY KEY (owner_fingerprint, message_hash)
     );`,
   );
@@ -101,6 +103,62 @@ export async function initializeChatStore(): Promise<void> {
       last_synced_at_utc TEXT
     );`,
   );
+
+  // Signal Protocol storage tables.
+  await db.executeSql(
+    `CREATE TABLE IF NOT EXISTS signal_identity (
+      owner_fingerprint TEXT PRIMARY KEY NOT NULL,
+      key_pair_pub_base64 TEXT NOT NULL,
+      key_pair_priv_base64 TEXT NOT NULL,
+      registration_id INTEGER NOT NULL
+    );`,
+  );
+
+  await db.executeSql(
+    `CREATE TABLE IF NOT EXISTS signal_prekeys (
+      owner_fingerprint TEXT NOT NULL,
+      prekey_id INTEGER NOT NULL,
+      key_pair_pub_base64 TEXT NOT NULL,
+      key_pair_priv_base64 TEXT NOT NULL,
+      PRIMARY KEY (owner_fingerprint, prekey_id)
+    );`,
+  );
+
+  await db.executeSql(
+    `CREATE TABLE IF NOT EXISTS signal_signed_prekeys (
+      owner_fingerprint TEXT NOT NULL,
+      prekey_id INTEGER NOT NULL,
+      key_pair_pub_base64 TEXT NOT NULL,
+      key_pair_priv_base64 TEXT NOT NULL,
+      PRIMARY KEY (owner_fingerprint, prekey_id)
+    );`,
+  );
+
+  await db.executeSql(
+    `CREATE TABLE IF NOT EXISTS signal_sessions (
+      owner_fingerprint TEXT NOT NULL,
+      peer_address TEXT NOT NULL,
+      session_record TEXT NOT NULL,
+      PRIMARY KEY (owner_fingerprint, peer_address)
+    );`,
+  );
+
+  await db.executeSql(
+    `CREATE TABLE IF NOT EXISTS signal_trusted_identities (
+      owner_fingerprint TEXT NOT NULL,
+      peer_identifier TEXT NOT NULL,
+      identity_key_base64 TEXT NOT NULL,
+      PRIMARY KEY (owner_fingerprint, peer_identifier)
+    );`,
+  );
+
+  try {
+    await db.executeSql(
+      'ALTER TABLE messages_local ADD COLUMN signal_message_type INTEGER;',
+    );
+  } catch {
+    // Column already exists on migrated databases.
+  }
 }
 
 export async function upsertKnownProfiles(
@@ -185,6 +243,7 @@ export async function listFriends(
 export async function getConversationState(
   ownerFingerprint: string,
   peerFingerprint: string,
+  storageKey?: string,
 ): Promise<ConversationState> {
   const db = await getDatabase();
   const [result] = await db.executeSql(
@@ -208,18 +267,39 @@ export async function getConversationState(
     incoming_chain_key_base64: string | null;
   };
 
+  const outgoing = row.outgoing_chain_key_base64;
+  const incoming = row.incoming_chain_key_base64;
+
   return {
     peerFingerprint,
-    outgoingChainKeyBase64: row.outgoing_chain_key_base64,
-    incomingChainKeyBase64: row.incoming_chain_key_base64,
+    outgoingChainKeyBase64:
+      outgoing && storageKey
+        ? (decryptField(outgoing, storageKey) ?? outgoing)
+        : outgoing,
+    incomingChainKeyBase64:
+      incoming && storageKey
+        ? (decryptField(incoming, storageKey) ?? incoming)
+        : incoming,
   };
 }
 
 export async function saveConversationState(
   ownerFingerprint: string,
   state: ConversationState,
+  storageKey?: string,
 ): Promise<void> {
   const db = await getDatabase();
+
+  const outgoing =
+    state.outgoingChainKeyBase64 && storageKey
+      ? encryptField(state.outgoingChainKeyBase64, storageKey)
+      : state.outgoingChainKeyBase64;
+
+  const incoming =
+    state.incomingChainKeyBase64 && storageKey
+      ? encryptField(state.incomingChainKeyBase64, storageKey)
+      : state.incomingChainKeyBase64;
+
   await db.executeSql(
     `INSERT INTO conversation_state (
        owner_fingerprint,
@@ -237,8 +317,8 @@ export async function saveConversationState(
     [
       ownerFingerprint,
       state.peerFingerprint,
-      state.outgoingChainKeyBase64,
-      state.incomingChainKeyBase64,
+      outgoing,
+      incoming,
       Date.now(),
     ],
   );
@@ -280,8 +360,16 @@ export async function upsertMessage(params: {
   encryptedContentBase64: string;
   plaintext: string | null;
   createdAt: string;
+  storageKey?: string;
+  signalMessageType?: number | null;
 }): Promise<void> {
   const db = await getDatabase();
+
+  const storedPlaintext =
+    params.plaintext && params.storageKey
+      ? encryptField(params.plaintext, params.storageKey)
+      : params.plaintext;
+
   await db.executeSql(
     `INSERT INTO messages_local (
        owner_fingerprint,
@@ -291,14 +379,16 @@ export async function upsertMessage(params: {
        to_public_key,
        encrypted_content_base64,
        plaintext,
-       created_at
+       created_at,
+       signal_message_type
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(owner_fingerprint, message_hash)
      DO UPDATE SET
        plaintext = COALESCE(messages_local.plaintext, excluded.plaintext),
        encrypted_content_base64 = excluded.encrypted_content_base64,
-       created_at = excluded.created_at;`,
+       created_at = excluded.created_at,
+       signal_message_type = COALESCE(messages_local.signal_message_type, excluded.signal_message_type);`,
     [
       params.ownerFingerprint,
       params.messageHash,
@@ -306,8 +396,9 @@ export async function upsertMessage(params: {
       params.fromPublicKey,
       params.toPublicKey,
       params.encryptedContentBase64,
-      params.plaintext,
+      storedPlaintext,
       params.createdAt,
+      params.signalMessageType ?? null,
     ],
   );
 }
@@ -315,6 +406,7 @@ export async function upsertMessage(params: {
 export async function listConversationMessages(
   ownerFingerprint: string,
   peerFingerprint: string,
+  storageKey?: string,
 ): Promise<LocalConversationMessage[]> {
   const db = await getDatabase();
   const [result] = await db.executeSql(
@@ -325,7 +417,8 @@ export async function listConversationMessages(
        to_public_key,
        encrypted_content_base64,
        plaintext,
-       created_at
+       created_at,
+       signal_message_type
      FROM messages_local
      WHERE owner_fingerprint = ? AND peer_fingerprint = ?
      ORDER BY created_at ASC;`,
@@ -340,15 +433,25 @@ export async function listConversationMessages(
     encrypted_content_base64: string;
     plaintext: string | null;
     created_at: string;
-  }>(result).map(row => ({
-    messageHash: row.message_hash,
-    peerFingerprint: row.peer_fingerprint,
-    fromPublicKey: row.from_public_key,
-    toPublicKey: row.to_public_key,
-    encryptedContentBase64: row.encrypted_content_base64,
-    plaintext: row.plaintext,
-    createdAt: row.created_at,
-  }));
+    signal_message_type: number | null;
+  }>(result).map(row => {
+    const rawPlaintext = row.plaintext;
+    const plaintext =
+      rawPlaintext && storageKey
+        ? (decryptField(rawPlaintext, storageKey) ?? rawPlaintext)
+        : rawPlaintext;
+
+    return {
+      messageHash: row.message_hash,
+      peerFingerprint: row.peer_fingerprint,
+      fromPublicKey: row.from_public_key,
+      toPublicKey: row.to_public_key,
+      encryptedContentBase64: row.encrypted_content_base64,
+      plaintext,
+      createdAt: row.created_at,
+      signalMessageType: row.signal_message_type,
+    };
+  });
 }
 
 export async function listConversationPreviews(

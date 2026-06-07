@@ -23,6 +23,7 @@ export type SyncMessage = {
   encryptedContentBase64: string;
   messageHash: string;
   createdAt: string;
+  signalMessageType: number | null;
 };
 
 export type SyncDelta = {
@@ -40,6 +41,7 @@ export type LocalConversationMessage = {
   encryptedContentBase64: string;
   plaintext: string | null;
   createdAt: string;
+  signalMessageType: number | null;
 };
 
 export type ConversationPreview = {

@@ -6,6 +6,7 @@ using Domain;
 using Infrastructure.Persistence;
 using Infrastructure.Persistence.Models;
 using Infrastructure.Services;
+using Microsoft.EntityFrameworkCore;
 
 namespace API.Endpoints;
 
@@ -22,10 +23,13 @@ internal static class MessageEndpoints
             SendMessageHandler handler,
             MessagerDbContext dbContext,
             SyncNotificationHub syncNotificationHub,
+            IConfiguration configuration,
             CancellationToken cancellationToken) =>
         {
             if (!EndpointHelpers.TrySetCurrentPublicKey(user, accessor, out IResult? error))
                 return error!;
+
+            int ttlDays = int.TryParse(configuration["MESSAGE_TTL_DAYS"], out int parsed) ? parsed : 30;
 
             try
             {
@@ -40,7 +44,9 @@ internal static class MessageEndpoints
                     ToPublicKey = message.ToPublicKey,
                     EncryptedContent = message.EncryptedContent,
                     MessageHash = message.MessageHash,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    ExpiresAt = DateTime.UtcNow.AddDays(ttlDays),
+                    SignalMessageType = request.SignalMessageType,
                 });
 
                 await dbContext.SaveChangesAsync(cancellationToken);
@@ -51,7 +57,8 @@ internal static class MessageEndpoints
                     message.ToPublicKey,
                     Convert.ToBase64String(message.EncryptedContent),
                     message.MessageHash,
-                    message.CreatedAt));
+                    message.CreatedAt,
+                    request.SignalMessageType));
             }
             catch (FormatException ex)
             {
@@ -96,6 +103,28 @@ internal static class MessageEndpoints
             {
                 return Results.NotFound(new ErrorResponse(ex.Message));
             }
+        });
+
+        group.MapPost("/{messageHash}/ack", async (
+            ClaimsPrincipal user,
+            string messageHash,
+            CurrentPublicKeyAccessor accessor,
+            MessagerDbContext dbContext,
+            CancellationToken cancellationToken) =>
+        {
+            if (!EndpointHelpers.TrySetCurrentPublicKey(user, accessor, out IResult? error))
+                return error!;
+
+            string callerFingerprint = accessor.GetFingerprintSha512();
+
+            if (!System.Text.RegularExpressions.Regex.IsMatch(messageHash, @"^[0-9a-fA-F]{128}$"))
+                return Results.BadRequest(new ErrorResponse("Invalid message hash format."));
+
+            int deleted = await dbContext.Messages
+                .Where(m => m.MessageHash == messageHash && m.ToPublicKey == callerFingerprint)
+                .ExecuteDeleteAsync(cancellationToken);
+
+            return deleted > 0 ? Results.NoContent() : Results.NotFound();
         });
 
         return group;
