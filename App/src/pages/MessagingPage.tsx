@@ -16,15 +16,7 @@ import { ConversationPage } from './ConversationPage';
 import { DropdownMenu } from '../components/DropdownMenu';
 import type { DropdownMenuItem } from '../components/DropdownMenu';
 import { FormField } from '../components/FormField';
-import {
-  createMessageHash,
-  decryptIncomingChainSeed,
-  decryptMessageWithChainKey,
-  deriveNextChainKeyBase64,
-  encryptChainSeedForRecipient,
-  encryptMessageWithChainKey,
-  generateChainSeedBase64,
-} from '../services/chatCrypto';
+import { createMessageHash } from '../services/chatCrypto';
 import {
   decryptWithSignal,
   encryptWithSignal,
@@ -32,16 +24,13 @@ import {
   initSignalProtocol,
 } from '../services/signalStore';
 import {
-  getConversationState,
   getLastSyncedAtUtc,
   initializeChatStore,
   listConversationMessages,
   listConversationPreviews,
   markConversationAsRead,
   markFriend,
-  saveConversationState,
   setLastSyncedAtUtc,
-  upsertKeyExchange,
   upsertKnownProfiles,
   upsertMessage,
 } from '../services/chatStore';
@@ -50,7 +39,6 @@ import {
   openConversationSocket,
   openSyncSocket,
   searchProfiles,
-  sendKeyExchange,
   sendMessage,
   syncDelta,
 } from '../services/messagingApi';
@@ -218,45 +206,6 @@ export function MessagingPage({
     async (delta: SyncDelta, activePeerFingerprint?: string) => {
       await upsertKnownProfiles(ownerFingerprint, delta.profiles);
 
-      for (const keyExchange of delta.keyExchanges) {
-        await upsertKeyExchange({
-          ownerFingerprint,
-          fromPublicKey: keyExchange.fromPublicKey,
-          toPublicKey: keyExchange.toPublicKey,
-          encryptedPrivateKeyBase64: keyExchange.encryptedPrivateKeyBase64,
-          createdAt: keyExchange.createdAt,
-        });
-
-        if (keyExchange.toPublicKey === ownerFingerprint) {
-          await markFriend(ownerFingerprint, keyExchange.fromPublicKey);
-        }
-
-        if (keyExchange.toPublicKey !== ownerFingerprint) {
-          continue;
-        }
-
-        try {
-          const incomingSeed = decryptIncomingChainSeed(
-            keyExchange.encryptedPrivateKeyBase64,
-            privateKeyPem,
-          );
-
-          const currentState = await getConversationState(
-            ownerFingerprint,
-            keyExchange.fromPublicKey,
-            storageKey,
-          );
-
-          await saveConversationState(ownerFingerprint, {
-            peerFingerprint: keyExchange.fromPublicKey,
-            outgoingChainKeyBase64: currentState.outgoingChainKeyBase64,
-            incomingChainKeyBase64: incomingSeed,
-          }, storageKey);
-        } catch {
-          // Ignore invalid key exchange payloads from external clients.
-        }
-      }
-
       for (const message of delta.messages) {
         const peerFingerprint =
           message.fromPublicKey === ownerFingerprint
@@ -269,41 +218,12 @@ export function MessagingPage({
           await markFriend(ownerFingerprint, message.fromPublicKey);
 
           if (message.signalMessageType != null) {
-            // Signal Protocol decrypt path.
             plaintext = await decryptWithSignal(
               message.encryptedContentBase64,
               message.signalMessageType,
               ownerFingerprint,
               peerFingerprint,
             );
-          } else {
-            // Legacy chain-key decrypt path.
-            const state = await getConversationState(
-              ownerFingerprint,
-              peerFingerprint,
-              storageKey,
-            );
-
-            if (state.incomingChainKeyBase64) {
-              const nextIncomingKey = deriveNextChainKeyBase64(
-                state.incomingChainKeyBase64,
-              );
-
-              try {
-                plaintext = decryptMessageWithChainKey(
-                  message.encryptedContentBase64,
-                  nextIncomingKey,
-                );
-
-                await saveConversationState(ownerFingerprint, {
-                  peerFingerprint,
-                  outgoingChainKeyBase64: state.outgoingChainKeyBase64,
-                  incomingChainKeyBase64: nextIncomingKey,
-                }, storageKey);
-              } catch {
-                plaintext = null;
-              }
-            }
           }
         }
 
@@ -339,7 +259,6 @@ export function MessagingPage({
     [
       loadConversation,
       ownerFingerprint,
-      privateKeyPem,
       refreshConversationPreviews,
       savedRegistration.apiBaseUrl,
       session.token,
@@ -576,43 +495,6 @@ export function MessagingPage({
     }
   }
 
-  async function ensureOutgoingChain(peer: PublicKeyProfile): Promise<string> {
-    const currentState = await getConversationState(
-      ownerFingerprint,
-      peer.fingerprintSha512,
-      storageKey,
-    );
-
-    if (currentState.outgoingChainKeyBase64) {
-      return currentState.outgoingChainKeyBase64;
-    }
-
-    const outgoingSeed = generateChainSeedBase64();
-    const encryptedSeed = encryptChainSeedForRecipient(
-      outgoingSeed,
-      peer.publicKeyDerBase64,
-      peer.fingerprintSha512,
-    );
-
-    await sendKeyExchange({
-      apiBaseUrl: savedRegistration.apiBaseUrl,
-      token: session.token,
-      toPublicKey: peer.fingerprintSha512,
-      encryptedPrivateKeyBase64: encryptedSeed,
-    });
-
-    await saveConversationState(ownerFingerprint, {
-      peerFingerprint: peer.fingerprintSha512,
-      outgoingChainKeyBase64: outgoingSeed,
-      incomingChainKeyBase64: currentState.incomingChainKeyBase64,
-    }, storageKey);
-
-    await markFriend(ownerFingerprint, peer.fingerprintSha512);
-    await refreshConversationPreviews();
-
-    return outgoingSeed;
-  }
-
   async function handleAddFriendAndSend(peer: PublicKeyProfile) {
     const trimmedMessage = composerText.trim();
 
@@ -632,7 +514,6 @@ export function MessagingPage({
     setStatus('Wysyłam pierwszą wiadomość i aktualizuję klucze...');
 
     try {
-      // Try Signal Protocol first; fall back to chain keys if peer has no prekeys.
       const signalResult = await encryptWithSignal(
         trimmedMessage,
         ownerFingerprint,
@@ -641,34 +522,13 @@ export function MessagingPage({
         session.token,
       );
 
-      let encryptedContentBase64: string;
-      let messageHash: string;
-      let signalMessageType: number | null;
-
-      if (signalResult) {
-        encryptedContentBase64 = signalResult.encryptedContentBase64;
-        messageHash = createMessageHash(encryptedContentBase64);
-        signalMessageType = signalResult.signalMessageType;
-      } else {
-        // Legacy chain-key path.
-        const outgoingSeed = await ensureOutgoingChain(peer);
-        const nextOutgoingKey = deriveNextChainKeyBase64(outgoingSeed);
-        encryptedContentBase64 = encryptMessageWithChainKey(trimmedMessage, nextOutgoingKey);
-        messageHash = createMessageHash(encryptedContentBase64);
-        signalMessageType = null;
-
-        const currentState = await getConversationState(
-          ownerFingerprint,
-          peer.fingerprintSha512,
-          storageKey,
-        );
-
-        await saveConversationState(ownerFingerprint, {
-          peerFingerprint: peer.fingerprintSha512,
-          outgoingChainKeyBase64: nextOutgoingKey,
-          incomingChainKeyBase64: currentState.incomingChainKeyBase64,
-        }, storageKey);
+      if (!signalResult) {
+        throw new Error('Odbiorca nie ma jeszcze kluczy Signal. Spróbuj ponownie za chwilę.');
       }
+
+      const encryptedContentBase64 = signalResult.encryptedContentBase64;
+      const messageHash = createMessageHash(encryptedContentBase64);
+      const signalMessageType = signalResult.signalMessageType;
 
       await sendMessage({
         apiBaseUrl: savedRegistration.apiBaseUrl,
