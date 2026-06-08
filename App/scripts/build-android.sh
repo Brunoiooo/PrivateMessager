@@ -38,5 +38,6 @@ npm ci
 printf 'MESSAGER_API_BASE_URL=%s\n' "$MESSAGER_API_BASE_URL" > /app/.env
 
 cd android
+chmod +x gradlew
 ./gradlew assembleRelease --no-daemon
 cp /app/android/app/build/outputs/apk/release/*.apk /releases/
