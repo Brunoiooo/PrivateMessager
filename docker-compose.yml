@@ -1,6 +1,7 @@
 services:
   db:
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -19,6 +20,7 @@ services:
     build:
       context: .
       dockerfile: API/Dockerfile
+    restart: unless-stopped
     expose:
       - "${API_BIND_PORT}"
     environment:
@@ -35,6 +37,7 @@ services:
 
   nginx:
     image: nginx:alpine
+    restart: unless-stopped
     ports:
       - "${NGINX_EXTERNAL_PORT:-443}:443"
     volumes:
