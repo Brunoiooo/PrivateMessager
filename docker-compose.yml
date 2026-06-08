@@ -19,8 +19,8 @@ services:
     build:
       context: .
       dockerfile: API/Dockerfile
-    ports:
-      - "${API_BIND_PORT}:${API_BIND_PORT}"
+    expose:
+      - "${API_BIND_PORT}"
     environment:
       API_BIND_IP: ${API_BIND_IP}
       API_BIND_PORT: ${API_BIND_PORT}
@@ -33,25 +33,38 @@ services:
       db:
         condition: service_healthy
 
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "${NGINX_EXTERNAL_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
+      - ./ssl:/etc/ssl/messager:ro
+    environment:
+      API_BIND_PORT: ${API_BIND_PORT}
+    command: >
+      /bin/sh -c "envsubst '$${API_BIND_PORT}' < /etc/nginx/nginx.conf.template
+      > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"
+    networks:
+      - messager-net
+    depends_on:
+      - api
+
   android-builder:
     build:
       context: App
       dockerfile: Dockerfile.android
     volumes:
-      - ./App:/app # source code from host
-      - /app/node_modules # isolate node_modules from Windows host
-      - android-gradle:/root/.gradle # gradle cache between runs
-      - ./releases/android:/releases # APK output to host
+      - ./App:/app
+      - /app/node_modules
+      - android-gradle:/root/.gradle
+      - ./releases/android:/releases
+      - ./ssl:/ssl:ro
+      - ./App/scripts/build-android.sh:/build-android.sh:ro
     environment:
       MESSAGER_API_BASE_URL: ${MESSAGER_API_BASE_URL}
-    command: >
-      sh -c "
-        npm ci &&
-        printf 'MESSAGER_API_BASE_URL=%s\n' \"$$MESSAGER_API_BASE_URL\" > /app/.env &&
-        cd android &&
-        ./gradlew assembleRelease --no-daemon &&
-        cp /app/android/app/build/outputs/apk/release/*.apk /releases/
-      "
+      SSL_CA_CERT_FILE: ${SSL_CA_CERT_FILE:-ca.pem}
+    command: sh /build-android.sh
     networks:
       - messager-net
     depends_on:
