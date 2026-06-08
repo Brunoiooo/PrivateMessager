@@ -34,7 +34,7 @@ export function LocalLoginPage({
   onForgetSavedRegistration,
   onAuthenticated,
 }: LocalLoginPageProps) {
-  const { isLoading, runWithLoading, showLoading } = useLoadingOverlay();
+  const { isLoading, runWithLoading, showLoading, hideLoading } = useLoadingOverlay();
   const { unlockedPrivateKeyPem, setUnlockedPrivateKeyPem, lastAutoLockAt } =
     usePrivateKeySession();
   const [pin, setPin] = useState('');
@@ -171,8 +171,12 @@ export function LocalLoginPage({
     setUnlockedPrivateKeyPem(privateKeyPem);
     setStatus('Klucz odszyfrowany. Trwa logowanie do API (JWT)...');
     showLoading('Logowanie do API (JWT)...');
-    await onAuthenticated(privateKeyPem);
-    setStatus('Zalogowano do API.');
+    try {
+      await onAuthenticated(privateKeyPem);
+      setStatus('Zalogowano do API.');
+    } finally {
+      hideLoading();
+    }
   }
 
   const showBiometricButton =
