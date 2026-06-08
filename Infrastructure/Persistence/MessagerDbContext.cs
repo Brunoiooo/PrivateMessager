@@ -26,6 +26,7 @@ public sealed class MessagerDbContext(DbContextOptions<MessagerDbContext> option
             entity.Property(x => x.FingerprintSha512).HasMaxLength(128);
             entity.Property(x => x.UserName).HasMaxLength(32);
             entity.Property(x => x.Der).HasColumnType("bytea");
+            entity.HasIndex(x => new { x.UserName, x.UserTag }).IsUnique();
         });
 
         modelBuilder.Entity<MessageRecord>(entity =>
