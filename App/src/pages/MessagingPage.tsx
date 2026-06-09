@@ -211,7 +211,15 @@ export function MessagingPage({
     async (delta: SyncDelta, activePeerFingerprint?: string) => {
       await upsertKnownProfiles(ownerFingerprint, delta.profiles);
 
+      const db = await getDatabase();
+      const processedHashes = new Set<string>();
+
       for (const message of delta.messages) {
+        if (processedHashes.has(message.messageHash)) {
+          continue;
+        }
+        processedHashes.add(message.messageHash);
+
         const peerFingerprint =
           message.fromPublicKey === ownerFingerprint
             ? message.toPublicKey
@@ -223,7 +231,6 @@ export function MessagingPage({
           await markFriend(ownerFingerprint, message.fromPublicKey);
 
           if (message.signalMessageType != null) {
-            const db = await getDatabase();
             const [existing] = await db.executeSql(
               'SELECT plaintext FROM messages_local WHERE owner_fingerprint = ? AND message_hash = ? LIMIT 1;',
               [ownerFingerprint, message.messageHash],
@@ -234,7 +241,6 @@ export function MessagingPage({
               plaintext = row.plaintext
                 ? (storageKey ? decryptField(row.plaintext, storageKey) : row.plaintext) ?? null
                 : null;
-              console.log('[Signal] Message already decrypted, skipping:', { hash: message.messageHash });
             } else {
               plaintext = await decryptWithSignal(
                 message.encryptedContentBase64,

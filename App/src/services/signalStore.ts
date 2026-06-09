@@ -185,7 +185,6 @@ export class SqliteSignalStore implements StorageType {
   }
 
   async storeSession(encodedAddress: string, record: SessionRecordType): Promise<void> {
-    console.log('[Signal] Storing session for address:', encodedAddress);
     const db = await getDatabase();
     await db.executeSql(
       `INSERT INTO signal_sessions (owner_fingerprint, peer_address, session_record)
@@ -194,7 +193,6 @@ export class SqliteSignalStore implements StorageType {
        DO UPDATE SET session_record = excluded.session_record;`,
       [this.ownerFingerprint, encodedAddress, record],
     );
-    console.log('[Signal] Session stored successfully for address:', encodedAddress);
   }
 
   async loadSession(encodedAddress: string): Promise<SessionRecordType | undefined> {
@@ -205,12 +203,10 @@ export class SqliteSignalStore implements StorageType {
     );
 
     if (result.rows.length === 0) {
-      console.log('[Signal] No session found for address:', encodedAddress);
       return undefined;
     }
 
     const row = result.rows.item(0) as { session_record: string };
-    console.log('[Signal] Session loaded for address:', encodedAddress);
     return row.session_record;
   }
 
@@ -383,12 +379,6 @@ export async function encryptWithSignal(
       view[i] = encrypted.body.charCodeAt(i);
     }
 
-    console.log('[Signal] Message encrypted', {
-      messageType: encrypted.type,
-      bodyLength: encrypted.body.length,
-      contentBase64Length: arrayBufferToBase64(binaryStringBuffer).length,
-    });
-
     return {
       encryptedContentBase64: arrayBufferToBase64(binaryStringBuffer),
       signalMessageType: encrypted.type,
@@ -416,39 +406,37 @@ export async function decryptWithSignal(
     const encryptedBuffer = base64ToArrayBuffer(encryptedContentBase64);
     const binaryString = String.fromCharCode(...new Uint8Array(encryptedBuffer));
 
-    console.log('[Signal] Attempting decryption', {
-      messageType: signalMessageType,
-      peerFingerprint,
-      encryptedLength: encryptedBuffer.byteLength,
-    });
-
     let plaintextBuffer: ArrayBuffer;
 
     if (signalMessageType === 3) {
-      console.log('[Signal] Decrypting PreKeyMessage (type 3)');
       plaintextBuffer = await cipher.decryptPreKeyWhisperMessage(
         binaryString,
         'binary',
       );
-      console.log('[Signal] PreKeyMessage decrypted successfully');
     } else {
-      console.log('[Signal] Decrypting WhisperMessage (type 1)');
       plaintextBuffer = await cipher.decryptWhisperMessage(
         binaryString,
         'binary',
       );
-      console.log('[Signal] WhisperMessage decrypted successfully');
     }
 
     const plaintext = String.fromCharCode(...new Uint8Array(plaintextBuffer));
-    console.log('[Signal] Plaintext decoded, length:', plaintext.length);
     return plaintext;
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('Message key not found') || errorMessage.includes('counter was repeated')) {
+      console.warn('[Signal] Message counter already used (duplicate/retry)', {
+        messageType: signalMessageType,
+        peerFingerprint,
+        contentLength: encryptedContentBase64.length,
+      });
+      return null;
+    }
     console.error('[Signal] Decryption failed', {
       messageType: signalMessageType,
       peerFingerprint,
       contentLength: encryptedContentBase64.length,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage,
       stack: error instanceof Error ? error.stack : undefined,
     });
     return null;
