@@ -16,7 +16,7 @@ import { ConversationPage } from './ConversationPage';
 import { DropdownMenu } from '../components/DropdownMenu';
 import type { DropdownMenuItem } from '../components/DropdownMenu';
 import { FormField } from '../components/FormField';
-import { createMessageHash } from '../services/chatCrypto';
+import { createMessageHash, decryptField } from '../services/chatCrypto';
 import {
   decryptWithSignal,
   encryptWithSignal,
@@ -25,6 +25,7 @@ import {
 } from '../services/signalStore';
 import {
   getLastSyncedAtUtc,
+  getDatabase,
   initializeChatStore,
   listConversationMessages,
   listConversationPreviews,
@@ -162,7 +163,7 @@ export function MessagingPage({
   );
 
   const refreshConversationPreviews = useCallback(async () => {
-    const loadedPreviews = await listConversationPreviews(ownerFingerprint);
+    const loadedPreviews = await listConversationPreviews(ownerFingerprint, storageKey);
     setConversationPreviews(loadedPreviews);
 
     setActivePeer(previousPeer => {
@@ -222,12 +223,26 @@ export function MessagingPage({
           await markFriend(ownerFingerprint, message.fromPublicKey);
 
           if (message.signalMessageType != null) {
-            plaintext = await decryptWithSignal(
-              message.encryptedContentBase64,
-              message.signalMessageType,
-              ownerFingerprint,
-              peerFingerprint,
+            const db = await getDatabase();
+            const [existing] = await db.executeSql(
+              'SELECT plaintext FROM messages_local WHERE owner_fingerprint = ? AND message_hash = ? LIMIT 1;',
+              [ownerFingerprint, message.messageHash],
             );
+
+            if (existing.rows.length > 0) {
+              const row = existing.rows.item(0) as { plaintext: string | null };
+              plaintext = row.plaintext
+                ? (storageKey ? decryptField(row.plaintext, storageKey) : row.plaintext) ?? null
+                : null;
+              console.log('[Signal] Message already decrypted, skipping:', { hash: message.messageHash });
+            } else {
+              plaintext = await decryptWithSignal(
+                message.encryptedContentBase64,
+                message.signalMessageType,
+                ownerFingerprint,
+                peerFingerprint,
+              );
+            }
           }
         }
 

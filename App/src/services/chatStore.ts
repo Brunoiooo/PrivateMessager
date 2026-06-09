@@ -456,6 +456,7 @@ export async function listConversationMessages(
 
 export async function listConversationPreviews(
   ownerFingerprint: string,
+  storageKey?: string,
 ): Promise<ConversationPreview[]> {
   const db = await getDatabase();
   const [result] = await db.executeSql(
@@ -516,18 +517,26 @@ export async function listConversationPreviews(
     last_message_created_at: string | null;
     last_message_from_public_key: string | null;
     unread_count: number;
-  }>(result).map(row => ({
-    profile: {
-      fingerprintSha512: row.fingerprint_sha512,
-      userName: row.user_name,
-      userTag: row.user_tag,
-      publicKeyDerBase64: row.public_key_der_base64,
-    },
-    lastMessageText: row.last_message_text,
-    lastMessageCreatedAt: row.last_message_created_at,
-    lastMessageFromPublicKey: row.last_message_from_public_key,
-    unreadCount: Number(row.unread_count) || 0,
-  }));
+  }>(result).map(row => {
+    const rawPlaintext = row.last_message_text;
+    const plaintext =
+      rawPlaintext && storageKey
+        ? (decryptField(rawPlaintext, storageKey) ?? rawPlaintext)
+        : rawPlaintext;
+
+    return {
+      profile: {
+        fingerprintSha512: row.fingerprint_sha512,
+        userName: row.user_name,
+        userTag: row.user_tag,
+        publicKeyDerBase64: row.public_key_der_base64,
+      },
+      lastMessageText: plaintext,
+      lastMessageCreatedAt: row.last_message_created_at,
+      lastMessageFromPublicKey: row.last_message_from_public_key,
+      unreadCount: Number(row.unread_count) || 0,
+    };
+  });
 }
 
 export async function markConversationAsRead(
