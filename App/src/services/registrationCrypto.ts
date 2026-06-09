@@ -3,9 +3,8 @@ import { RSA } from 'react-native-rsa-native';
 
 import { PrivateKeyEnvelope, StoredRegistration } from '../types/registration';
 
-// RSA 2048 can be very slow on some emulators/devices during local development.
-// Use a faster key size in debug builds and keep stronger keys in production builds.
-const KEY_BITS = __DEV__ ? 1024 : 2048;
+// Use RSA-2048 for all builds for consistent security
+const KEY_BITS = 2048;
 const PBKDF2_ITERATIONS = 150000;
 const PBKDF2_KEY_SIZE = 32;
 
