@@ -312,6 +312,7 @@ export async function ensureSignalIdentity(
     await uploadPreKeyBundle({
       apiBaseUrl,
       token,
+      identityKeyPublicBase64: arrayBufferToBase64(identityKeyPair.pubKey),
       signedPreKeyId: signedPreKey.keyId,
       signedPreKeyPublicBase64: arrayBufferToBase64(signedPreKey.keyPair.pubKey),
       signatureBase64: arrayBufferToBase64(signedPreKey.signature),
@@ -345,7 +346,7 @@ export async function encryptWithSignal(
       }
 
       const device = {
-        identityKey: base64ToArrayBuffer(bundle.identityKeyDerBase64),
+        identityKey: base64ToArrayBuffer(bundle.identityKeyBase64),
         signedPreKey: {
           keyId: bundle.signedPreKeyId,
           publicKey: base64ToArrayBuffer(bundle.signedPreKeyPublicBase64),
@@ -372,8 +373,14 @@ export async function encryptWithSignal(
       return null;
     }
 
+    const binaryStringBuffer = new ArrayBuffer(encrypted.body.length);
+    const view = new Uint8Array(binaryStringBuffer);
+    for (let i = 0; i < encrypted.body.length; i++) {
+      view[i] = encrypted.body.charCodeAt(i);
+    }
+
     return {
-      encryptedContentBase64: encrypted.body,
+      encryptedContentBase64: arrayBufferToBase64(binaryStringBuffer),
       signalMessageType: encrypted.type,
     };
   } catch {
@@ -392,17 +399,20 @@ export async function decryptWithSignal(
     const address = new SignalProtocolAddress(peerFingerprint, 1);
     const cipher = new SessionCipher(store, address);
 
+    const encryptedBuffer = base64ToArrayBuffer(encryptedContentBase64);
+    const binaryString = String.fromCharCode(...new Uint8Array(encryptedBuffer));
+
     let plaintextBuffer: ArrayBuffer;
 
     if (signalMessageType === 3) {
       plaintextBuffer = await cipher.decryptPreKeyWhisperMessage(
-        encryptedContentBase64,
-        'base64',
+        binaryString,
+        'binary',
       );
     } else {
       plaintextBuffer = await cipher.decryptWhisperMessage(
-        encryptedContentBase64,
-        'base64',
+        binaryString,
+        'binary',
       );
     }
 

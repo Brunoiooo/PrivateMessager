@@ -25,11 +25,13 @@ internal static class PreKeyEndpoints
 
             string ownerFingerprint = accessor.GetFingerprintSha512();
 
+            byte[] identityPublicKey;
             byte[] signedPreKeyPublic;
             byte[] signature;
 
             try
             {
+                identityPublicKey = Convert.FromBase64String(request.IdentityKeyPublicBase64);
                 signedPreKeyPublic = Convert.FromBase64String(request.SignedPreKeyPublicBase64);
                 signature = Convert.FromBase64String(request.SignatureBase64);
             }
@@ -45,6 +47,7 @@ internal static class PreKeyEndpoints
                 PreKeyId = request.SignedPreKeyId,
                 PublicKey = signedPreKeyPublic,
                 Signature = signature,
+                IdentityPublicKey = identityPublicKey,
                 CreatedAt = DateTime.UtcNow,
             };
 
@@ -103,12 +106,10 @@ internal static class PreKeyEndpoints
             if (!EndpointHelpers.TrySetCurrentPublicKey(user, accessor, out IResult? error))
                 return error!;
 
-            var identityKey = await dbContext.PublicKeys
-                .Where(x => x.FingerprintSha512 == fingerprint)
-                .Select(x => x.Der)
-                .FirstOrDefaultAsync(cancellationToken);
+            bool profileExists = await dbContext.PublicKeys
+                .AnyAsync(x => x.FingerprintSha512 == fingerprint, cancellationToken);
 
-            if (identityKey is null)
+            if (!profileExists)
                 return Results.NotFound(new ErrorResponse("Profile not found."));
 
             var signedPreKey = await dbContext.SignedPreKeys
@@ -116,7 +117,7 @@ internal static class PreKeyEndpoints
                 .OrderByDescending(x => x.CreatedAt)
                 .FirstOrDefaultAsync(cancellationToken);
 
-            if (signedPreKey is null)
+            if (signedPreKey is null || signedPreKey.IdentityPublicKey is null)
                 return Results.NotFound(new ErrorResponse("No signed prekey on file for this user."));
 
             // Consume one unused OTP (mark as consumed and return it).
@@ -132,7 +133,7 @@ internal static class PreKeyEndpoints
             }
 
             return Results.Ok(new PreKeyBundleResponse(
-                Convert.ToBase64String(identityKey),
+                Convert.ToBase64String(signedPreKey.IdentityPublicKey!),
                 signedPreKey.PreKeyId,
                 Convert.ToBase64String(signedPreKey.PublicKey),
                 Convert.ToBase64String(signedPreKey.Signature),

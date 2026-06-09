@@ -24,19 +24,32 @@ internal static class MessageEndpoints
             MessagerDbContext dbContext,
             SyncNotificationHub syncNotificationHub,
             IConfiguration configuration,
+            ILoggerFactory loggerFactory,
             CancellationToken cancellationToken) =>
         {
+            var logger = loggerFactory.CreateLogger("MessageEndpoints");
+
             if (!EndpointHelpers.TrySetCurrentPublicKey(user, accessor, out IResult? error))
                 return error!;
 
             int ttlDays = int.TryParse(configuration["MESSAGE_TTL_DAYS"], out int parsed) ? parsed : 30;
 
+            logger.LogInformation("POST /api/messages/ - ToPublicKey length: {ToKeyLen}, MessageHash length: {HashLen}, EncryptedContent base64 length: {ContentLen}",
+                request.ToPublicKey?.Length ?? 0,
+                request.MessageHash?.Length ?? 0,
+                request.EncryptedContentBase64?.Length ?? 0);
+
             try
             {
+                byte[] encryptedContent = Convert.FromBase64String(request.EncryptedContentBase64);
+                logger.LogInformation("POST /api/messages/ - Base64 decoded successfully, content length: {ContentLen} bytes", encryptedContent.Length);
+
                 Message message = handler.Handle(
                     request.ToPublicKey,
-                    Convert.FromBase64String(request.EncryptedContentBase64),
+                    encryptedContent,
                     request.MessageHash);
+
+                logger.LogInformation("POST /api/messages/ - Message created successfully, hash: {Hash}", message.MessageHash);
 
                 dbContext.Messages.Add(new MessageRecord
                 {
@@ -62,14 +75,17 @@ internal static class MessageEndpoints
             }
             catch (FormatException ex)
             {
+                logger.LogWarning("POST /api/messages/ - Base64 format error: {Error}", ex.Message);
                 return Results.BadRequest(new ErrorResponse(ex.Message));
             }
             catch (ArgumentException ex)
             {
+                logger.LogWarning("POST /api/messages/ - Validation error: {Error}", ex.Message);
                 return Results.BadRequest(new ErrorResponse(ex.Message));
             }
             catch (InvalidOperationException ex)
             {
+                logger.LogWarning("POST /api/messages/ - Operation error: {Error}", ex.Message);
                 return Results.BadRequest(new ErrorResponse(ex.Message));
             }
         });

@@ -1,6 +1,7 @@
 namespace API.Contracts;
 
 public sealed record UploadPreKeyBundleRequest(
+    string IdentityKeyPublicBase64,
     int SignedPreKeyId,
     string SignedPreKeyPublicBase64,
     string SignatureBase64,
@@ -9,7 +10,7 @@ public sealed record UploadPreKeyBundleRequest(
 public sealed record OneTimePreKeyEntry(int PreKeyId, string PublicBase64);
 
 public sealed record PreKeyBundleResponse(
-    string IdentityKeyDerBase64,
+    string IdentityKeyBase64,
     int SignedPreKeyId,
     string SignedPreKeyPublicBase64,
     string SignatureBase64,

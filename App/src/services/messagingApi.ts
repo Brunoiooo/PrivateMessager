@@ -285,7 +285,7 @@ export async function ackMessage(params: {
 }
 
 export type PreKeyBundleResponse = {
-  identityKeyDerBase64: string;
+  identityKeyBase64: string;
   signedPreKeyId: number;
   signedPreKeyPublicBase64: string;
   signatureBase64: string;
@@ -317,6 +317,7 @@ export async function fetchPreKeyBundle(params: {
 export async function uploadPreKeyBundle(params: {
   apiBaseUrl: string;
   token: string;
+  identityKeyPublicBase64: string;
   signedPreKeyId: number;
   signedPreKeyPublicBase64: string;
   signatureBase64: string;
@@ -329,6 +330,7 @@ export async function uploadPreKeyBundle(params: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
+      identityKeyPublicBase64: params.identityKeyPublicBase64,
       signedPreKeyId: params.signedPreKeyId,
       signedPreKeyPublicBase64: params.signedPreKeyPublicBase64,
       signatureBase64: params.signatureBase64,

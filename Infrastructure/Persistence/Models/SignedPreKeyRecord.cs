@@ -23,6 +23,9 @@ public sealed class SignedPreKeyRecord
     [Column(TypeName = "bytea")]
     public byte[] Signature { get; set; } = [];
 
+    [Column(TypeName = "bytea")]
+    public byte[]? IdentityPublicKey { get; set; }
+
     [Required]
     public DateTime CreatedAt { get; set; }
 }
