@@ -352,9 +352,9 @@ export async function encryptWithSignal(
           publicKey: base64ToArrayBuffer(bundle.signedPreKeyPublicBase64),
           signature: base64ToArrayBuffer(bundle.signatureBase64),
         },
-        preKey: bundle.otpPublicBase64
+        preKey: bundle.otpPublicBase64 && bundle.otpPreKeyId != null
           ? {
-              keyId: 0,
+              keyId: bundle.otpPreKeyId,
               publicKey: base64ToArrayBuffer(bundle.otpPublicBase64),
             }
           : undefined,

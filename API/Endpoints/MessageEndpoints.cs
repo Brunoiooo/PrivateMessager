@@ -70,7 +70,7 @@ internal static class MessageEndpoints
                     message.ToPublicKey,
                     Convert.ToBase64String(message.EncryptedContent),
                     message.MessageHash,
-                    message.CreatedAt,
+                    DateTime.UtcNow,
                     request.SignalMessageType));
             }
             catch (FormatException ex)

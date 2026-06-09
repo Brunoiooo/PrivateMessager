@@ -289,7 +289,7 @@ export type PreKeyBundleResponse = {
   signedPreKeyId: number;
   signedPreKeyPublicBase64: string;
   signatureBase64: string;
-  otpId: string | null;
+  otpPreKeyId: number | null;
   otpPublicBase64: string | null;
 };
 

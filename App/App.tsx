@@ -2,10 +2,7 @@ import 'react-native-get-random-values';
 
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   StatusBar,
-  StyleSheet,
-  View,
   useColorScheme,
 } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -15,7 +12,7 @@ import {
   PrivateKeySessionProvider,
   usePrivateKeySession,
 } from './src/context/PrivateKeySessionContext';
-import { LoadingOverlayProvider } from './src/context/LoadingOverlayContext';
+import { LoadingOverlayProvider, useLoadingOverlay } from './src/context/LoadingOverlayContext';
 import { ErrorOverlayProvider } from './src/context/ErrorOverlayContext';
 import {
   AuthGatewayPage,
@@ -62,6 +59,7 @@ function App() {
 function AppContent() {
   const { clearUnlockedPrivateKeyPem, unlockedPrivateKeyPem } =
     usePrivateKeySession();
+  const { showLoading, hideLoading } = useLoadingOverlay();
   const [page, setPage] = useState<AppPage>('gateway');
   const [profiles, setProfiles] = useState<LocalProfile[]>([]);
   const [activeProfileId, setActiveProfileIdState] = useState<number | null>(
@@ -91,6 +89,8 @@ function AppContent() {
   useEffect(() => {
     let cancelled = false;
 
+    showLoading('Ładowanie...');
+
     void (async () => {
       await initializeProfileStore();
       const [loadedProfiles, loadedActiveProfileId] = await Promise.all([
@@ -114,12 +114,14 @@ function AppContent() {
       );
       setSavedRegistration(loadedRegistration);
       setLoading(false);
+      hideLoading();
     })();
 
     return () => {
       cancelled = true;
+      hideLoading();
     };
-  }, []);
+  }, [showLoading, hideLoading]);
 
   async function refreshProfilesAndActiveRegistration(
     explicitActiveProfileId?: number | null,
@@ -187,11 +189,7 @@ function AppContent() {
   }
 
   if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator color="#F8FAFC" />
-      </View>
-    );
+    return null;
   }
 
   if (page === 'gateway') {
@@ -282,14 +280,5 @@ function AppContent() {
     />
   );
 }
-
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: '#08111F',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
 
 export default App;

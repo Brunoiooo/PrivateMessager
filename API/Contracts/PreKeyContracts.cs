@@ -14,5 +14,5 @@ public sealed record PreKeyBundleResponse(
     int SignedPreKeyId,
     string SignedPreKeyPublicBase64,
     string SignatureBase64,
-    Guid? OtpId,
+    int? OtpPreKeyId,
     string? OtpPublicBase64);

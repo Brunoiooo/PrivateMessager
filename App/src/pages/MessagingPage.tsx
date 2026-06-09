@@ -51,6 +51,7 @@ import {
 } from '../types/messaging';
 import { StoredRegistration } from '../types/registration';
 import { usePrivateKeySession } from '../context/PrivateKeySessionContext';
+import { useLoadingOverlay } from '../context/LoadingOverlayContext';
 import { useError } from '../context/ErrorOverlayContext';
 import { extractErrorMessage, createUserFriendlyMessage } from '../utils/errorHandler';
 
@@ -131,8 +132,8 @@ export function MessagingPage({
   const insets = useSafeAreaInsets();
   const { storageKey } = usePrivateKeySession();
   const { showError, isDeveloperMode } = useError();
+  const { isLoading: busy, runWithLoading } = useLoadingOverlay();
 
-  const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('Połączono. Możesz wyszukiwać profile.');
 
   const [searchUserName, setSearchUserName] = useState('');
@@ -442,14 +443,13 @@ export function MessagingPage({
       return;
     }
 
-    setBusy(true);
-    setStatus('Synchronizuję nowe wiadomości i klucze...');
-
     try {
-      await runSync(
-        screenMode === 'conversation'
-          ? activePeer?.fingerprintSha512
-          : undefined,
+      await runWithLoading('Synchronizuję nowe wiadomości i klucze...', () =>
+        runSync(
+          screenMode === 'conversation'
+            ? activePeer?.fingerprintSha512
+            : undefined,
+        ),
       );
       setStatus('Synchronizacja zakończona.');
     } catch (error) {
@@ -457,8 +457,6 @@ export function MessagingPage({
       const userMessage = isDeveloperMode ? apiError.message : createUserFriendlyMessage(apiError);
       showError(userMessage, apiError.code, isDeveloperMode ? apiError.details : undefined);
       setStatus(userMessage);
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -467,33 +465,30 @@ export function MessagingPage({
       return;
     }
 
-    setBusy(true);
-    setStatus('Szukam profili...');
-
     try {
-      const parsedTag = Number.parseInt(searchUserTag, 10);
-      const results = await searchProfiles({
-        apiBaseUrl: savedRegistration.apiBaseUrl,
-        token: session.token,
-        userName: searchUserName.trim(),
-        userTag: Number.isInteger(parsedTag) ? parsedTag : undefined,
+      await runWithLoading('Szukam profili...', async () => {
+        const parsedTag = Number.parseInt(searchUserTag, 10);
+        const results = await searchProfiles({
+          apiBaseUrl: savedRegistration.apiBaseUrl,
+          token: session.token,
+          userName: searchUserName.trim(),
+          userTag: Number.isInteger(parsedTag) ? parsedTag : undefined,
+        });
+
+        const filtered = results.filter(
+          result => result.fingerprintSha512 !== ownerFingerprint,
+        );
+
+        setSearchResults(filtered);
+        await upsertKnownProfiles(ownerFingerprint, filtered);
+        await refreshConversationPreviews();
+        setStatus(`Znaleziono ${filtered.length} profili.`);
       });
-
-      const filtered = results.filter(
-        result => result.fingerprintSha512 !== ownerFingerprint,
-      );
-
-      setSearchResults(filtered);
-      await upsertKnownProfiles(ownerFingerprint, filtered);
-      await refreshConversationPreviews();
-      setStatus(`Znaleziono ${filtered.length} profili.`);
     } catch (error) {
       const apiError = extractErrorMessage(error);
       const userMessage = isDeveloperMode ? apiError.message : createUserFriendlyMessage(apiError);
       showError(userMessage, apiError.code, isDeveloperMode ? apiError.details : undefined);
       setStatus(userMessage);
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -512,62 +507,59 @@ export function MessagingPage({
       return;
     }
 
-    setBusy(true);
-    setStatus('Wysyłam pierwszą wiadomość i aktualizuję klucze...');
-
     try {
-      const signalResult = await encryptWithSignal(
-        trimmedMessage,
-        ownerFingerprint,
-        peer.fingerprintSha512,
-        savedRegistration.apiBaseUrl,
-        session.token,
-      );
+      await runWithLoading('Wysyłam pierwszą wiadomość i aktualizuję klucze...', async () => {
+        const signalResult = await encryptWithSignal(
+          trimmedMessage,
+          ownerFingerprint,
+          peer.fingerprintSha512,
+          savedRegistration.apiBaseUrl,
+          session.token,
+        );
 
-      if (!signalResult) {
-        throw new Error('Odbiorca nie ma jeszcze kluczy Signal. Spróbuj ponownie za chwilę.');
-      }
+        if (!signalResult) {
+          throw new Error('Odbiorca nie ma jeszcze kluczy Signal. Spróbuj ponownie za chwilę.');
+        }
 
-      const encryptedContentBase64 = signalResult.encryptedContentBase64;
-      const messageHash = createMessageHash(encryptedContentBase64);
-      const signalMessageType = signalResult.signalMessageType;
+        const encryptedContentBase64 = signalResult.encryptedContentBase64;
+        const messageHash = createMessageHash(encryptedContentBase64);
+        const signalMessageType = signalResult.signalMessageType;
 
-      await sendMessage({
-        apiBaseUrl: savedRegistration.apiBaseUrl,
-        token: session.token,
-        toPublicKey: peer.fingerprintSha512,
-        encryptedContentBase64,
-        messageHash,
-        signalMessageType,
+        await sendMessage({
+          apiBaseUrl: savedRegistration.apiBaseUrl,
+          token: session.token,
+          toPublicKey: peer.fingerprintSha512,
+          encryptedContentBase64,
+          messageHash,
+          signalMessageType,
+        });
+
+        const createdAt = new Date().toISOString();
+
+        await upsertMessage({
+          ownerFingerprint,
+          messageHash,
+          peerFingerprint: peer.fingerprintSha512,
+          fromPublicKey: ownerFingerprint,
+          toPublicKey: peer.fingerprintSha512,
+          encryptedContentBase64,
+          plaintext: trimmedMessage,
+          createdAt,
+          storageKey,
+          signalMessageType,
+        });
+
+        await loadConversation(peer.fingerprintSha512);
+        openConversation(peer);
+        await refreshConversationPreviews();
+        setComposerText('');
+        setStatus('Wiadomość wysłana.');
       });
-
-      const createdAt = new Date().toISOString();
-
-      await upsertMessage({
-        ownerFingerprint,
-        messageHash,
-        peerFingerprint: peer.fingerprintSha512,
-        fromPublicKey: ownerFingerprint,
-        toPublicKey: peer.fingerprintSha512,
-        encryptedContentBase64,
-        plaintext: trimmedMessage,
-        createdAt,
-        storageKey,
-        signalMessageType,
-      });
-
-      await loadConversation(peer.fingerprintSha512);
-      openConversation(peer);
-      await refreshConversationPreviews();
-      setComposerText('');
-      setStatus('Wiadomość wysłana.');
     } catch (error) {
       const apiError = extractErrorMessage(error);
       const userMessage = isDeveloperMode ? apiError.message : createUserFriendlyMessage(apiError);
       showError(userMessage, apiError.code, isDeveloperMode ? apiError.details : undefined);
       setStatus(userMessage);
-    } finally {
-      setBusy(false);
     }
   }
 

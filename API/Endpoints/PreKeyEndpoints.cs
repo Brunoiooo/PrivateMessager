@@ -137,7 +137,7 @@ internal static class PreKeyEndpoints
                 signedPreKey.PreKeyId,
                 Convert.ToBase64String(signedPreKey.PublicKey),
                 Convert.ToBase64String(signedPreKey.Signature),
-                otp?.Id,
+                otp?.PreKeyId,
                 otp is not null ? Convert.ToBase64String(otp.PublicKey) : null));
         });
 
