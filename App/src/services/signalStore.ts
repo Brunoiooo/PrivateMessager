@@ -404,7 +404,8 @@ export async function decryptWithSignal(
     const cipher = new SessionCipher(store, address);
 
     const encryptedBuffer = base64ToArrayBuffer(encryptedContentBase64);
-    const binaryString = String.fromCharCode(...new Uint8Array(encryptedBuffer));
+    const encryptedBytes = new Uint8Array(encryptedBuffer);
+    const binaryString = String.fromCharCode(...Array.from(encryptedBytes));
 
     let plaintextBuffer: ArrayBuffer;
 
@@ -420,7 +421,7 @@ export async function decryptWithSignal(
       );
     }
 
-    const plaintext = String.fromCharCode(...new Uint8Array(plaintextBuffer));
+    const plaintext = String.fromCharCode(...Array.from(new Uint8Array(plaintextBuffer)));
     return plaintext;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

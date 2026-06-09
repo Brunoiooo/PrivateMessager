@@ -111,12 +111,9 @@ function randomBytes(length: number): Uint8Array {
 }
 
 function bytesToBinary(bytes: Uint8Array): string {
-  const chunkSize = 0x8000;
   let result = '';
-
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    result += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  for (let i = 0; i < bytes.length; i++) {
+    result += String.fromCharCode(bytes[i] & 0xff);
   }
-
   return result;
 }
