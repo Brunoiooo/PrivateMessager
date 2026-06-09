@@ -45,6 +45,6 @@ public sealed class LoginService(MessagerDbContext dbContext) : ILoginService
         challengeRecord.ConsumedAt = now;
         _dbContext.SaveChanges();
 
-        return Guid.NewGuid().ToString("N");
+        return fingerprintSha512;
     }
 }

@@ -34,14 +34,6 @@ public sealed class MessageRecord
     [Required]
     public DateTime ExpiresAt { get; set; }
 
-    // X3DH fields: set only on the first Signal Protocol message that initialises a session.
-    [Column(TypeName = "bytea")]
-    public byte[]? X3dhEphemeralKey { get; set; }
-
-    public int? X3dhSignedPreKeyId { get; set; }
-
-    public Guid? X3dhOtpId { get; set; }
-
     // 1 = WhisperMessage, 3 = PreKeyWhisperMessage, null = legacy chain-key message.
     public int? SignalMessageType { get; set; }
 }

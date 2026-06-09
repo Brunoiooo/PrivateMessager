@@ -93,6 +93,9 @@ public sealed class PublicKey : BaseEntity
     public void AddKeyExchange(string toPublicKey, byte[] encryptedPrivateKey) =>
         _myKeyExchanges.Add(new(FingerprintSha512, toPublicKey, encryptedPrivateKey));
 
+    public void AddReceivedKeyExchange(string fromPublicKey, string toPublicKey, byte[] encryptedPrivateKey) =>
+        _yourKeyExchanges.Add(new KeyExchange(fromPublicKey, toPublicKey, encryptedPrivateKey));
+
     public Message SendMessage(string toPublicKey, byte[] encryptedContent, string messageHash, int? signalMessageType = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(toPublicKey);
@@ -105,6 +108,9 @@ public sealed class PublicKey : BaseEntity
         _myMessages.Add(message);
         return message;
     }
+
+    public void AddReceivedMessage(string fromPublicKey, string toPublicKey, byte[] encryptedContent, string messageHash, int? signalMessageType = null) =>
+        _yourMessages.Add(new Message(fromPublicKey, toPublicKey, encryptedContent, messageHash, signalMessageType));
 
     public IReadOnlyList<Message> GetMessages(
         string toPublicKey,
