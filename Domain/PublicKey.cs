@@ -82,6 +82,8 @@ public sealed class PublicKey : BaseEntity
         FingerprintSha512 = fingerprintSha512;
         UserName = userName;
         UserTag = userTag;
+        CreatedAt = DateTime.UtcNow;
+        UpdatedAt = DateTime.UtcNow;
     }
 
     #endregion
@@ -91,7 +93,7 @@ public sealed class PublicKey : BaseEntity
     public void AddKeyExchange(string toPublicKey, byte[] encryptedPrivateKey) =>
         _myKeyExchanges.Add(new(FingerprintSha512, toPublicKey, encryptedPrivateKey));
 
-    public Message SendMessage(string toPublicKey, byte[] encryptedContent, string messageHash)
+    public Message SendMessage(string toPublicKey, byte[] encryptedContent, string messageHash, int? signalMessageType = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(toPublicKey);
 
@@ -99,7 +101,7 @@ public sealed class PublicKey : BaseEntity
         if (!hasKeyExchangeForRecipient)
             throw new InvalidOperationException("Cannot send message without a key exchange from owner to recipient.");
 
-        Message message = new(FingerprintSha512, toPublicKey, encryptedContent, messageHash);
+        Message message = new(FingerprintSha512, toPublicKey, encryptedContent, messageHash, signalMessageType);
         _myMessages.Add(message);
         return message;
     }

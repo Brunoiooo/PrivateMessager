@@ -4,11 +4,11 @@ public abstract class BaseEntity
 {
     public DateTime CreatedAt
     {
-        get;
+        get; init;
     }
 
     public DateTime UpdatedAt
     {
-        get;
+        get; init;
     }
 }

@@ -48,7 +48,7 @@ public sealed class PublicKeyRepository(MessagerDbContext dbContext) : IPublicKe
             .ToList();
 
         foreach (Persistence.Models.MessageRecord message in sentMessages)
-            publicKey.SendMessage(message.ToPublicKey, message.EncryptedContent, message.MessageHash);
+            publicKey.SendMessage(message.ToPublicKey, message.EncryptedContent, message.MessageHash, message.SignalMessageType);
 
         List<Persistence.Models.MessageRecord> receivedMessages = _dbContext.Messages
             .Where(x => x.ToPublicKey == fingerprintSha512)
@@ -56,7 +56,7 @@ public sealed class PublicKeyRepository(MessagerDbContext dbContext) : IPublicKe
 
         List<Message> yourMessages = (List<Message>)YourMessagesField.GetValue(publicKey)!;
         foreach (Persistence.Models.MessageRecord message in receivedMessages)
-            yourMessages.Add(new Message(message.FromPublicKey, message.ToPublicKey, message.EncryptedContent, message.MessageHash));
+            yourMessages.Add(new Message(message.FromPublicKey, message.ToPublicKey, message.EncryptedContent, message.MessageHash, message.SignalMessageType));
 
         return publicKey;
     }

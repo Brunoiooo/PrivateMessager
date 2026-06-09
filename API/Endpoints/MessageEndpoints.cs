@@ -47,7 +47,8 @@ internal static class MessageEndpoints
                 Message message = handler.Handle(
                     request.ToPublicKey,
                     encryptedContent,
-                    request.MessageHash);
+                    request.MessageHash,
+                    request.SignalMessageType);
 
                 logger.LogInformation("POST /api/messages/ - Message created successfully, hash: {Hash}", message.MessageHash);
 
@@ -71,7 +72,7 @@ internal static class MessageEndpoints
                     Convert.ToBase64String(message.EncryptedContent),
                     message.MessageHash,
                     DateTime.UtcNow,
-                    request.SignalMessageType));
+                    message.SignalMessageType));
             }
             catch (FormatException ex)
             {
@@ -109,7 +110,8 @@ internal static class MessageEndpoints
                     x.ToPublicKey,
                     Convert.ToBase64String(x.EncryptedContent),
                     x.MessageHash,
-                    x.CreatedAt)));
+                    x.CreatedAt,
+                    x.SignalMessageType)));
             }
             catch (ArgumentException ex)
             {

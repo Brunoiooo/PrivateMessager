@@ -49,6 +49,8 @@ public sealed class KeyExchange : BaseEntity
         FromPublicKey = fromPublicKey;
         ToPublicKey = toPublicKey;
         EncryptedPrivateKey = encryptedPrivateKey;
+        CreatedAt = DateTime.UtcNow;
+        UpdatedAt = DateTime.UtcNow;
     }
 
     #endregion

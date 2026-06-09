@@ -24,6 +24,11 @@ public sealed class Message : BaseEntity
         get; private set;
     }
 
+    public int? SignalMessageType
+    {
+        get; private set;
+    }
+
     #endregion
 
     #region Constructors
@@ -32,7 +37,7 @@ public sealed class Message : BaseEntity
     {
     }
 
-    public Message(string fromPublicKey, string toPublicKey, byte[] encryptedContent, string messageHash)
+    public Message(string fromPublicKey, string toPublicKey, byte[] encryptedContent, string messageHash, int? signalMessageType = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(fromPublicKey);
         ArgumentException.ThrowIfNullOrEmpty(toPublicKey);
@@ -67,6 +72,9 @@ public sealed class Message : BaseEntity
         ToPublicKey = toPublicKey;
         EncryptedContent = encryptedContent;
         MessageHash = messageHash;
+        SignalMessageType = signalMessageType;
+        CreatedAt = DateTime.UtcNow;
+        UpdatedAt = DateTime.UtcNow;
     }
 
     #endregion
