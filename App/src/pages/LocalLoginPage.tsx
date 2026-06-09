@@ -6,7 +6,9 @@ import { AuthCard } from '../components/AuthCard';
 import { FormField } from '../components/FormField';
 import { ScreenShell } from '../components/ScreenShell';
 import { useLoadingOverlay } from '../context/LoadingOverlayContext';
+import { useError } from '../context/ErrorOverlayContext';
 import { usePrivateKeySession } from '../context/PrivateKeySessionContext';
+import { extractErrorMessage, createUserFriendlyMessage } from '../utils/errorHandler';
 import {
   BiometryType,
   isBiometricAvailable,
@@ -35,6 +37,7 @@ export function LocalLoginPage({
   onAuthenticated,
 }: LocalLoginPageProps) {
   const { isLoading, runWithLoading, showLoading, hideLoading } = useLoadingOverlay();
+  const { showError, isDeveloperMode } = useError();
   const { unlockedPrivateKeyPem, setUnlockedPrivateKeyPem, lastAutoLockAt } =
     usePrivateKeySession();
   const [pin, setPin] = useState('');
@@ -156,12 +159,11 @@ export function LocalLoginPage({
       });
     } catch (error) {
       setUnlockedPrivateKeyPem('');
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Nie udało się odszyfrować klucza.';
-      setFormError(message);
-      setStatus(message);
+      const apiError = extractErrorMessage(error);
+      const userMessage = isDeveloperMode ? apiError.message : createUserFriendlyMessage(apiError);
+      showError(userMessage, apiError.code, isDeveloperMode ? apiError.details : undefined);
+      setFormError(userMessage);
+      setStatus(userMessage);
     } finally {
       setIsProcessing(false);
     }

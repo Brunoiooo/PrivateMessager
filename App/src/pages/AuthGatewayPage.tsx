@@ -3,10 +3,13 @@ import { Platform, StyleSheet, Text, View } from 'react-native';
 
 import { ActionButton } from '../components/ActionButton';
 import { AuthCard } from '../components/AuthCard';
+import { DevModeToggle } from '../components/DevModeToggle';
 import { FormField } from '../components/FormField';
 import { ProfilePicker } from '../components/ProfilePicker';
 import { ScreenShell } from '../components/ScreenShell';
 import { useLoadingOverlay } from '../context/LoadingOverlayContext';
+import { useError } from '../context/ErrorOverlayContext';
+import { extractErrorMessage, createUserFriendlyMessage } from '../utils/errorHandler';
 import { LocalProfile } from '../types/profile';
 import { StoredRegistration } from '../types/registration';
 
@@ -32,6 +35,7 @@ export function AuthGatewayPage({
   onGoToLocalLogin,
 }: AuthGatewayPageProps) {
   const { isLoading, runWithLoading } = useLoadingOverlay();
+  const { showError, isDeveloperMode } = useError();
   const [newProfileName, setNewProfileName] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [profileNameError, setProfileNameError] = useState<string | undefined>(
@@ -65,11 +69,10 @@ export function AuthGatewayPage({
       setNewProfileName('');
       setStatus('Profil został utworzony i ustawiony jako aktywny.');
     } catch (error) {
-      setStatus(
-        error instanceof Error
-          ? error.message
-          : 'Nie udało się utworzyć profilu.',
-      );
+      const apiError = extractErrorMessage(error);
+      const userMessage = isDeveloperMode ? apiError.message : createUserFriendlyMessage(apiError);
+      showError(userMessage, apiError.code, isDeveloperMode ? apiError.details : undefined);
+      setStatus(userMessage);
     } finally {
       setIsProcessing(false);
     }
@@ -89,11 +92,10 @@ export function AuthGatewayPage({
 
       setStatus('Przełączono aktywny profil.');
     } catch (error) {
-      setStatus(
-        error instanceof Error
-          ? error.message
-          : 'Nie udało się przełączyć profilu.',
-      );
+      const apiError = extractErrorMessage(error);
+      const userMessage = isDeveloperMode ? apiError.message : createUserFriendlyMessage(apiError);
+      showError(userMessage, apiError.code, isDeveloperMode ? apiError.details : undefined);
+      setStatus(userMessage);
     } finally {
       setIsProcessing(false);
     }
@@ -105,7 +107,9 @@ export function AuthGatewayPage({
       title="Profile lokalne"
       subtitle="Możesz utworzyć wiele profili i przełączać aktywny profil przed rejestracją lub logowaniem lokalnym."
     >
-      <AuthCard>
+      <View style={styles.devModeContainer}>
+        <DevModeToggle />
+      </View>
         <Text style={styles.sectionTitle}>Nowy profil</Text>
         <FormField
           label="Nazwa profilu"
@@ -195,6 +199,10 @@ export function AuthGatewayPage({
 }
 
 const styles = StyleSheet.create({
+  devModeContainer: {
+    marginBottom: 12,
+    alignItems: 'center',
+  },
   sectionTitle: {
     color: '#F8FAFC',
     fontSize: 18,

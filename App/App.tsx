@@ -16,6 +16,7 @@ import {
   usePrivateKeySession,
 } from './src/context/PrivateKeySessionContext';
 import { LoadingOverlayProvider } from './src/context/LoadingOverlayContext';
+import { ErrorOverlayProvider } from './src/context/ErrorOverlayContext';
 import {
   AuthGatewayPage,
   LocalLoginPage,
@@ -45,13 +46,15 @@ function App() {
   return (
     <SafeAreaProvider>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-      <PrivateKeySessionProvider>
-        <LoadingOverlayProvider>
-          <PrivateKeySessionActivityBoundary>
-            <AppContent />
-          </PrivateKeySessionActivityBoundary>
-        </LoadingOverlayProvider>
-      </PrivateKeySessionProvider>
+      <ErrorOverlayProvider>
+        <PrivateKeySessionProvider>
+          <LoadingOverlayProvider>
+            <PrivateKeySessionActivityBoundary>
+              <AppContent />
+            </PrivateKeySessionActivityBoundary>
+          </LoadingOverlayProvider>
+        </PrivateKeySessionProvider>
+      </ErrorOverlayProvider>
     </SafeAreaProvider>
   );
 }
