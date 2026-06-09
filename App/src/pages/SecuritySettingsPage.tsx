@@ -6,6 +6,7 @@ import { AuthCard } from '../components/AuthCard';
 import { FormField } from '../components/FormField';
 import { ScreenShell } from '../components/ScreenShell';
 import { useLoadingOverlay } from '../context/LoadingOverlayContext';
+import { useError } from '../context/ErrorOverlayContext';
 import {
   BiometryType,
   disableBiometricUnlock,
@@ -17,6 +18,7 @@ import {
   decryptPrivateKey,
   encryptPrivateKey,
 } from '../services/registrationCrypto';
+import { extractErrorMessage, createUserFriendlyMessage } from '../utils/errorHandler';
 import { StoredRegistration } from '../types/registration';
 
 type SecuritySettingsPageProps = {
@@ -33,6 +35,7 @@ export function SecuritySettingsPage({
   onPinChanged,
 }: SecuritySettingsPageProps) {
   const { isLoading, runWithLoading } = useLoadingOverlay();
+  const { showError, isDeveloperMode } = useError();
   const [biometryType, setBiometryType] = useState<BiometryType>(null);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -74,8 +77,11 @@ export function SecuritySettingsPage({
         setBiometricEnabled(true);
         setStatusMessage(`Odblokowanie ${biometryTypeName(biometryType)} włączone.`);
       }
-    } catch {
-      setStatusMessage('Nie udało się zmienić ustawienia biometrii.');
+    } catch (error) {
+      const apiError = extractErrorMessage(error);
+      const userMessage = isDeveloperMode ? apiError.message : createUserFriendlyMessage(apiError);
+      showError(userMessage, apiError.code, isDeveloperMode ? apiError.details : undefined);
+      setStatusMessage(userMessage);
     } finally {
       setIsProcessing(false);
     }
@@ -132,9 +138,10 @@ export function SecuritySettingsPage({
         setPinSuccess('PIN zmieniony pomyślnie.');
       });
     } catch (error) {
-      setPinError(
-        error instanceof Error ? error.message : 'Nie udało się zmienić PIN-u.',
-      );
+      const apiError = extractErrorMessage(error);
+      const userMessage = isDeveloperMode ? apiError.message : createUserFriendlyMessage(apiError);
+      showError(userMessage, apiError.code, isDeveloperMode ? apiError.details : undefined);
+      setPinError(userMessage);
     } finally {
       setIsProcessing(false);
     }

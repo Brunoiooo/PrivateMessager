@@ -7,7 +7,9 @@ import { FormField } from '../components/FormField';
 import { ScreenShell } from '../components/ScreenShell';
 import { API_BASE_URL } from '../config/env';
 import { useLoadingOverlay } from '../context/LoadingOverlayContext';
+import { useError } from '../context/ErrorOverlayContext';
 import { usePrivateKeySession } from '../context/PrivateKeySessionContext';
+import { extractErrorMessage, createUserFriendlyMessage } from '../utils/errorHandler';
 import {
   enableBiometricUnlock,
   isBiometricAvailable,
@@ -45,6 +47,7 @@ export function RegistrationPage({
 }: RegistrationPageProps) {
   const { clearUnlockedPrivateKeyPem } = usePrivateKeySession();
   const { isLoading, runWithLoading, showLoading } = useLoadingOverlay();
+  const { showError, isDeveloperMode } = useError();
   const [apiBaseUrl, setApiBaseUrl] = useState(API_BASE_URL);
   const [userName, setUserName] = useState('');
   const [userTag, setUserTag] = useState('');
@@ -234,13 +237,11 @@ export function RegistrationPage({
         onGoToLogin();
       }
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Nie udało się zarejestrować konta.';
-
-      setFormError(message);
-      showStatus(message);
+      const apiError = extractErrorMessage(error);
+      const userMessage = isDeveloperMode ? apiError.message : createUserFriendlyMessage(apiError);
+      showError(userMessage, apiError.code, isDeveloperMode ? apiError.details : undefined);
+      setFormError(userMessage);
+      showStatus(userMessage);
     } finally {
       setIsProcessing(false);
     }
