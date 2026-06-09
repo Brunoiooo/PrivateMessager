@@ -1,3 +1,8 @@
+# Local/workspace files
+.claude/
+releases/
+ssl/
+
 ### C#
 # Build results
 [Bb]in/
