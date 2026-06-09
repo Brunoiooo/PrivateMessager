@@ -1,7 +1,8 @@
 # Messager — Dokumentacja Akademicka Systemu
 
 **Tytuł projektu:** Messager — wielowarstwowy komunikator z szyfrowaniem end-to-end  
-**Typ projektu:** Aplikacja webowo-mobilna (monorepo)  
+**Typ projektu:** Aplikacja klient-serwer (full-stack: .NET 10 + React Native)  
+**Charakter:** Projekt osobisty/demo, gotowy do wdrożenia na produkcji po przeprowadzeniu audytów bezpieczeństwa  
 **Data dokumentacji:** 2026-06-09  
 
 ---
@@ -10,31 +11,41 @@
 
 1. [Abstrakt](#1-abstrakt)
 2. [Wstęp](#2-wstęp)
-3. [Tło technologiczne i kryptograficzne](#3-tło-technologiczne-i-kryptograficzne)
-4. [Architektura systemu](#4-architektura-systemu)
-5. [Model dziedziny](#5-model-dziedziny)
-6. [Warstwa Application — przypadki użycia](#6-warstwa-application--przypadki-użycia)
-7. [Warstwa Infrastructure — realizacja techniczna](#7-warstwa-infrastructure--realizacja-techniczna)
-8. [Warstwa API — interfejs HTTP i WebSocket](#8-warstwa-api--interfejs-http-i-websocket)
-9. [Klient mobilny](#9-klient-mobilny)
-10. [Model kryptograficzny — analiza szczegółowa](#10-model-kryptograficzny--analiza-szczegółowa)
-11. [Schemat bazy danych](#11-schemat-bazy-danych)
-12. [Synchronizacja i komunikacja czasu rzeczywistego](#12-synchronizacja-i-komunikacja-czasu-rzeczywistego)
-13. [Konfiguracja środowiska i wdrożenie](#13-konfiguracja-środowiska-i-wdrożenie)
-14. [Analiza bezpieczeństwa](#14-analiza-bezpieczeństwa)
-15. [Ograniczenia i kierunki rozwoju](#15-ograniczenia-i-kierunki-rozwoju)
-16. [Wnioski](#16-wnioski)
-17. [Słownik pojęć](#17-słownik-pojęć)
+3. [Szybki start](#3-szybki-start)
+4. [Tech stack — przegląd technologii](#4-tech-stack--przegląd-technologii)
+5. [Główne funkcje systemu](#5-główne-funkcje-systemu)
+6. [Tło technologiczne i kryptograficzne](#6-tło-technologiczne-i-kryptograficzne)
+7. [Architektura systemu](#7-architektura-systemu)
+8. [Model dziedziny](#8-model-dziedziny)
+9. [Warstwa Application — przypadki użycia](#9-warstwa-application--przypadki-użycia)
+10. [Warstwa Infrastructure — realizacja techniczna](#10-warstwa-infrastructure--realizacja-techniczna)
+11. [Warstwa API — interfejs HTTP i WebSocket](#11-warstwa-api--interfejs-http-i-websocket)
+12. [Klient mobilny](#12-klient-mobilny)
+13. [Model kryptograficzny — analiza szczegółowa](#13-model-kryptograficzny--analiza-szczegółowa)
+14. [Schemat bazy danych](#14-schemat-bazy-danych)
+15. [Synchronizacja i komunikacja czasu rzeczywistego](#15-synchronizacja-i-komunikacja-czasu-rzeczywistego)
+16. [Konfiguracja środowiska i wdrożenie](#16-konfiguracja-środowiska-i-wdrożenie)
+17. [Analiza bezpieczeństwa](#17-analiza-bezpieczeństwa)
+18. [Ograniczenia i kierunki rozwoju](#18-ograniczenia-i-kierunki-rozwoju)
+19. [FAQ — często zadawane pytania](#19-faq--często-zadawane-pytania)
+20. [Troubleshooting — rozwiązywanie problemów](#20-troubleshooting--rozwiązywanie-problemów)
+21. [Wnioski](#21-wnioski)
+22. [Słownik pojęć](#22-słownik-pojęć)
 
 ---
 
 ## 1. Abstrakt
 
-Niniejszy dokument stanowi akademicką dokumentację systemu Messager — komunikatora realizującego szyfrowanie wiadomości metodą end-to-end (E2EE) przy użyciu kryptografii asymetrycznej RSA oraz symetrycznych kluczy łańcuchowych (ang. *chain keys*). System składa się z backendu napisanego w technologii ASP.NET Core (.NET 10) z bazą danych PostgreSQL oraz klienta mobilnego opartego na React Native z lokalnym składem danych SQLite.
+Niniejszy dokument stanowi **akademicką dokumentację systemu Messager** — pełnostackowego, wielowarstwowego komunikatora realizującego szyfrowanie wiadomości metodą **end-to-end (E2EE)** przy użyciu **Signal Protocol** oraz kryptografii asymetrycznej **RSA-OAEP** i symetrycznej **AES-256-GCM**.
 
-Architektura backendu stosuje wzorzec Clean Architecture, separując warstwę dziedziny (Domain), zastosowań (Application), infrastruktury (Infrastructure) oraz interfejsu HTTP (API). Klient mobilny implementuje pełny przepływ kryptograficzny: generowanie pary kluczy RSA, ochronę klucza prywatnego mechanizmem PBKDF2+AES-GCM, uwierzytelnianie challenge-response z podpisem RSA/SHA-512, wymianę materiału kluczowego RSA-OAEP oraz szyfrowanie wiadomości AES-GCM z derywacją kolejnych kluczy łańcuchowych funkcją SHA-256.
+**Architektura:**
+- **Backend**: .NET 10, ASP.NET Core Minimal APIs, PostgreSQL (EF Core), JWT Bearer auth
+- **Mobile**: React Native 0.85 + TypeScript, SQLite offline-first cache, libsignal-protocol-typescript
+- **Security Model**: Challenge-response logowanie (RSA-SHA512), kluczy łańcuchowe ze forward secrecy, PBKDF2-SHA256 do ochrony klucza prywatnego
 
-Dokument opisuje każdą warstwę systemu, analizuje przyjęte rozwiązania architektoniczne i kryptograficzne, prezentuje schematy bazy danych, specyfikację API oraz omawia aspekty bezpieczeństwa i ograniczenia bieżącej implementacji.
+System implementuje wzorzec **Clean Architecture**, separując warstwę dziedziny (Domain), zastosowań (Application), infrastruktury (Infrastructure) oraz interfejsu HTTP/WebSocket (API). Serwer **nigdy nie widzi plaintextu wiadomości** — wszystkie dane kryptograficznie wrażliwe pozostają po stronie klienta.
+
+Dokument opisuje każdą warstwę systemu, analizuje rozwiązania architektoniczne, specyfikuje API, opisuje przepływy kryptograficzne i omawia aspekty bezpieczeństwa.
 
 ---
 
@@ -76,11 +87,136 @@ Dokumentacja obejmuje całość kodu źródłowego repozytorium (`c:\Users\Blaze
 | Runtime mobilny | React Native | 0.85.3 |
 | Język mobilny | TypeScript / React | 19.2.3 |
 | Baza danych klienta | SQLite | react-native-sqlite-storage |
-| Kryptografia klienta | node-forge, react-native-rsa-native | — |
+| Kryptografia klienta | node-forge, react-native-rsa-native, libsignal | — |
+| Reverse Proxy | Nginx | alpine |
+| Konteneryzacja | Docker + Docker Compose | — |
 
 ---
 
-## 3. Tło technologiczne i kryptograficzne
+## 3. Szybki start
+
+### 3.1 Wymagania
+
+- **Node.js** ≥ 22.11.0
+- **.NET 8.0+** (testowane na .NET 10)
+- **Docker & Docker Compose** (opcjonalnie)
+- **PostgreSQL** (jeśli uruchomienie bez Dockera)
+- **Android SDK** lub **Xcode** (do budowania aplikacji mobilnej)
+
+### 3.2 Uruchomienie z Dockerem
+
+```bash
+# Klonowanie repozytorium
+git clone https://github.com/your-org/messager.git
+cd messager
+
+# Skopiowanie szablonu zmiennych środowiskowych
+cp .env.example .env
+
+# Edycja .env — zmień hasła i klucze
+nano .env
+
+# Uruchomienie pełnego stosu
+docker-compose up -d
+
+# Weryfikacja statusu
+docker-compose ps
+```
+
+Dostęp:
+- **API (Swagger)**: https://localhost:443/swagger
+- **Backend**: http://localhost:5000 (wewnętrzny)
+- **Nginx**: https://localhost:443 (dostęp publiczny)
+
+### 3.3 Uruchomienie lokalne (bez Dockera)
+
+**Backend:**
+
+```bash
+cd API
+dotnet restore
+dotnet build
+dotnet run
+```
+
+**Frontend (Android):**
+
+```bash
+cd App
+npm install
+npm start                    # Start Metro bundler
+npm run android             # Uruchomienie na emulatorze/urządzeniu
+```
+
+---
+
+## 4. Tech stack — przegląd technologii
+
+### 4.1 Stos backendowy
+
+| Komponent | Technologia | Rola |
+|---|---|---|
+| **Runtime** | .NET 10 | Nowoczesny, unified platform dla serverless, containerów, web |
+| **Framework** | ASP.NET Core Minimal APIs | Lekki, type-safe routing bez kontrolerów |
+| **ORM** | EF Core + Npgsql | Mapowanie obiektowo-relacyjne z obsługą PostgreSQL |
+| **Baza** | PostgreSQL 17 | Type-safe SQL, JSONB, full-text search, zaawansowane indeksy |
+| **Autentykacja** | JWT Bearer (HS256) | 12h TTL, issuer+audience validation |
+| **Rate Limiting** | ASP.NET Core Rate Limiting | Sliding window (auth: 10 req/min, search: 30 req/min) |
+| **Real-time** | WebSocket (System.Net.WebSockets) | In-memory pub/sub (`SyncNotificationHub`) |
+| **Hashing** | SHA-512 | Fingerprint użytkownika (128 hex) |
+| **Szyfrowanie** | RSA-OAEP, AES-GCM | Wymiana kluczy i szyfrowanie wiadomości |
+
+### 4.2 Stos frontendowy
+
+| Komponent | Technologia | Rola |
+|---|---|---|
+| **Framework** | React Native 0.85.3 | Cross-platform iOS/Android (single codebase) |
+| **Język** | TypeScript 5.8.3 | Type safety, improved DX |
+| **Komunikacja** | React Hooks + Fetch/WebSocket | REST + real-time push |
+| **Lokalny skład** | SQLite + async-storage | Offline-first, w-device encryption |
+| **Kryptografia** | Signal Protocol + node-forge + RSA Native | E2EE, challenge-response, lokalny key management |
+| **Biometria** | react-native-keychain | Fingerprint/Face unlock, secure key storage |
+| **Stan** | React Context + localStorage | Global session context (private key, JWT) |
+
+### 4.3 Infrastruktura
+
+| Komponent | Technologia | Rola |
+|---|---|---|
+| **Reverse Proxy** | Nginx (alpine) | TLS termination, HTTP/2, WebSocket proxy, rate limiting |
+| **Konteneryzacja** | Docker + Docker Compose | Standardowe środowiska (dev, staging, prod) |
+| **CI/CD** | Dockerfile.android | Automatyzacja budowania APK |
+| **Volume persistence** | Docker volumes | Trwałość danych DB i cache |
+
+---
+
+## 5. Główne funkcje systemu
+
+### 5.1 Rdzenne cechy
+
+✅ **End-to-End Encrypted Messaging** — Signal Protocol z forward secrecy, odbiorca szyfruje wiadomości kluczem publicznym nadawcy  
+✅ **Zero-Knowledge Architecture** — serwer nigdy nie widzi plaintextu, przechowuje wyłącznie `IV || Tag || Ciphertext`  
+✅ **Challenge-Response Login** — bezpieczne logowanie bez transmisji hasła, RSA-SHA512 signatures  
+✅ **Real-time Sync** — WebSocket gateway do natychmiastowych powiadomień o nowych wiadomościach  
+✅ **Multi-Profile Support** — obsługa wielu tożsamości na jednym urządzeniu z izolacją danych  
+✅ **Offline-First** — SQLite local cache, automatyczna synchronizacja po reconnect  
+✅ **Biometric Authentication** — PIN + fingerprint/face unlock na iOS/Android  
+✅ **Message TTL** — automatyczne usuwanie starych wiadomości (domyślnie 30 dni)  
+✅ **Auto-Lock** — session timeout po 5 minutach bezczynności  
+✅ **Cross-Platform** — aplikacja mobilna iOS i Android z wspólnym kodem React Native  
+
+### 5.2 Przepływy użytkownika
+
+| Przepływ | Opis |
+|---|---|
+| **Rejestracja** | Użytkownik generuje parę kluczy RSA, ustawia PIN, pobiera fingerprint (SHA-512), rejestruje się na serwerze |
+| **Logowanie** | PIN odmyka klucz prywatny (AES-GCM decrypt), challenge-response (sign challenge), otrzymanie JWT |
+| **Wysłanie wiadomości** | Pobranie klucza publicznego odbiorcy, RSA-OAEP sharedSecret, AES-GCM szyfrowanie, wysłanie na serwer |
+| **Odbiór wiadomości** | WebSocket notifikacja, fetch zaszyfrowanej wiadomości, AES-GCM deszyfrowanie, SQLite cache |
+| **Synchronizacja** | HTTP `/api/sync/delta?since=last_synced_at` lub WebSocket push dla real-time updates |
+
+---
+
+## 6. Tło technologiczne i kryptograficzne
 
 ### 3.1 Kryptografia asymetryczna RSA
 
@@ -117,7 +253,7 @@ Mechanizm uwierzytelniania bez przesyłania hasła przez sieć. Serwer generuje 
 
 ---
 
-## 4. Architektura systemu
+## 7. Architektura systemu
 
 ### 4.1 Architektura ogólna
 
@@ -187,7 +323,7 @@ Klient React Native jest podzielony na warstwy funkcjonalne:
 
 ---
 
-## 5. Model dziedziny
+## 8. Model dziedziny
 
 ### 5.1 Encja bazowa — `BaseEntity`
 
@@ -278,7 +414,7 @@ Klucz naturalny złożony: `(FromPublicKey, ToPublicKey)` — para rozmówców m
 
 ---
 
-## 6. Warstwa Application — przypadki użycia
+## 9. Warstwa Application — przypadki użycia
 
 Warstwa definiuje handlery (ang. *use case handlers*) oraz interfejsy serwisów. Nie zawiera zależności od infrastruktury.
 
@@ -345,7 +481,7 @@ Pobieranie danych z opcjonalnym filtrem `since` (data od) dla synchronizacji prz
 
 ---
 
-## 7. Warstwa Infrastructure — realizacja techniczna
+## 10. Warstwa Infrastructure — realizacja techniczna
 
 ### 7.1 `MessagerDbContext` — kontekst EF Core
 
@@ -431,7 +567,7 @@ Statyczna metoda rozszerzenia `AddInfrastructure(connectionString)` rejestruje w
 
 ---
 
-## 8. Warstwa API — interfejs HTTP i WebSocket
+## 11. Warstwa API — interfejs HTTP i WebSocket
 
 ### 8.1 Konfiguracja aplikacji (`Program.cs`)
 
@@ -538,7 +674,7 @@ W-pamięciowy broker pub/sub dla powiadomień WebSocket, oparty na `System.Threa
 
 ---
 
-## 9. Klient mobilny
+## 12. Klient mobilny
 
 ### 9.1 Zarządzanie profilami (`App.tsx`, `profileStore.ts`)
 
@@ -663,7 +799,7 @@ Klucz prywatny odblokowany PINem przechowywany jest wyłącznie w pamięci w Rea
 
 ---
 
-## 10. Model kryptograficzny — analiza szczegółowa
+## 13. Model kryptograficzny — analiza szczegółowa
 
 ### 10.1 Schemat tożsamości kryptograficznej
 
@@ -775,7 +911,7 @@ Dla każdej wiadomości:
 
 ---
 
-## 11. Schemat bazy danych
+## 14. Schemat bazy danych
 
 ### 11.1 Backend (PostgreSQL)
 
@@ -938,7 +1074,7 @@ Cache wymian kluczy (analogiczna struktura do serwera).
 
 ---
 
-## 12. Synchronizacja i komunikacja czasu rzeczywistego
+## 15. Synchronizacja i komunikacja czasu rzeczywistego
 
 ### 12.1 Synchronizacja przyrostowa HTTP
 
@@ -966,7 +1102,7 @@ Klient WebSocket ◀──── SyncNotificationHub ◀──── SendMessage
 
 ---
 
-## 13. Konfiguracja środowiska i wdrożenie
+## 16. Konfiguracja środowiska i wdrożenie
 
 ### 13.1 Plik `.env` — centralna konfiguracja Docker Compose
 
@@ -1184,7 +1320,7 @@ npm run android
 
 ---
 
-## 14. Analiza bezpieczeństwa
+## 17. Analiza bezpieczeństwa
 
 ### 14.1 Zagrożenia i mechanizmy ochrony
 
@@ -1226,7 +1362,7 @@ npm run android
 
 ---
 
-## 15. Ograniczenia i kierunki rozwoju
+## 18. Ograniczenia i kierunki rozwoju
 
 ### 15.1 Bieżące ograniczenia techniczne
 
@@ -1250,23 +1386,244 @@ npm run android
 
 ---
 
-## 16. Wnioski
+## 19. FAQ — często zadawane pytania
 
-Projekt Messager stanowi spójną, wielowarstwową implementację komunikatora z szyfrowaniem end-to-end, realizującą następujące cele inżynierskie:
+### P: Czy mogę użyć tego systemu w produkcji?
 
-1. **Separacja odpowiedzialności** — wzorzec Clean Architecture skutecznie oddziela reguły biznesowe (Domain), przypadki użycia (Application), szczegóły techniczne (Infrastructure) i interfejs HTTP (API). Przepływ zależności jest jednostronny i kontrolowany.
+A: Architektura jest gotowa do produkcji, ale wciąż jest to projekt demo/osobisty. Przed wdrożeniem:
+1. Przeprowadzić audyt bezpieczeństwa przez niezależny zespół
+2. Włączyć automatyczne testy (testy integracyjne, testy bezpieczeństwa)
+3. Wdrożyć migracje EF Core zamiast `EnsureCreated()`
+4. Skonfigurować monitoring i logging
 
-2. **Bezpieczeństwo przez kryptografię** — tożsamość użytkownika oparta na kluczu publicznym RSA, uwierzytelnianie bez transmisji sekretu (challenge-response), lokalna ochrona klucza prywatnego PBKDF2+AES-GCM, szyfrowanie wiadomości AES-GCM z derywacją kluczy łańcuchowych (forward secrecy). Serwer nie posiada kluczy deszyfrujących.
+### P: Jaki jest limit rozmiaru wiadomości?
 
-3. **Praktyczny UX** — wieloprofilowe zarządzanie na urządzeniu, lokalne cache SQLite umożliwiające działanie offline, synchronizacja przyrostowa minimalizująca transfer danych, WebSocket dla dostarczania wiadomości w czasie rzeczywistym.
+A: Limitowany przez `MaxRequestBodySize` w Nginx (domyślnie ~1MB). Można zwiększyć w konfiguracji Nginx.
 
-4. **Skalowalność architektoniczna** — modularność warstw ułatwia wymianę komponentów (np. zastąpienie in-memory pub/sub Redis Pub/Sub, migrację bazy, zmianę biblioteki kryptograficznej).
+### P: Jak długo wiadomości są przechowywane na serwerze?
 
-W obecnej formie projekt jest kompletny funkcjonalnie i gotowy do pracy jako baza do dalszego utwardzenia operacyjnego. Identyfikowane ograniczenia dotyczą głównie warstw devops (brak migracji, brak testów automatycznych) i są typowe dla projektów w fazie deweloperskiej. Warstwa kryptograficzna i architektura domenowa prezentują poziom jakości umożliwiający wdrożenie produkcyjne po uzupełnieniu ww. braków.
+A: `MESSAGE_TTL_DAYS` zmienna środowiskowa (domyślnie 30 dni). `MessageCleanupService` uruchamia się codziennie o północy UTC.
+
+### P: Czy baza danych jest szyfrowana?
+
+A: Wiadomości są szyfrowane client-side i przechowywane jako ciphertext. Baza przechowuje wyłącznie `IV || Tag || Ciphertext`. Dla pełnej ochrony włącz encryption-at-rest na poziomie PostgreSQL lub dysku.
+
+### P: Mogę uruchomić to bez Dockera?
+
+A: Tak, ale będziesz musiał ręcznie zainstalować PostgreSQL, .NET 10, Node.js i Android SDK.
+
+### P: Czy jest obsługa wielu urządzeń dla tego samego użytkownika?
+
+A: Obecny model nie obsługuje tego natywnie. Każda tożsamość (`fingerprint`) jest przywiązana do jednej pary kluczy. Multi-device wymagałoby wdrożenia dodatkowych protokołów (np. X3DH z prekeys per device).
+
+### P: Jaki jest czas wygaśnięcia JWT?
+
+A: 12 godzin od wystawienia. Po wygaśnięciu klient musi ponownie zalogować się challenge-response.
+
+### P: Czy serwer może czytać wiadomości?
+
+A: **Nie.** Wiadomości są szyfrowane na kliencie przy użyciu AES-256-GCM kluczem łańcuchowym. Serwer przechowuje wyłącznie ciphertext i nigdy nie widzi plaintextu.
 
 ---
 
-## 17. Słownik pojęć
+## 20. Troubleshooting — rozwiązywanie problemów
+
+### Problem: API nie startuje
+
+```bash
+# Sprawdzenie zmiennych środowiskowych
+echo $JWT_SIGNING_KEY
+echo $POSTGRES_CONNECTION_STRING
+
+# Jeśli puste — ustawić zmienne
+export JWT_SIGNING_KEY="your-base64-key"
+export POSTGRES_CONNECTION_STRING="Host=localhost;..."
+
+# Uruchomienie z debug logging
+dotnet run --verbosity Debug
+```
+
+### Problem: Aplikacja mobilna nie łączy się z API
+
+**Przyczyny:**
+1. `MESSAGER_API_BASE_URL` jest nieprawidłowy
+2. Certyfikat SSL nie jest zaufany (development)
+3. Firewall/NAT blokuje połączenie
+4. JWT wygasł (12h TTL)
+
+**Rozwiązania:**
+
+```bash
+# Android Emulator — gateway hosta
+# .env: MESSAGER_API_BASE_URL=http://10.0.2.2:5000
+
+# Urządzenie fizyczne — port forwarding
+adb reverse tcp:5000 tcp:5000
+# .env: MESSAGER_API_BASE_URL=http://localhost:5000
+
+# Wi-Fi — use machine IP
+# .env: MESSAGER_API_BASE_URL=http://192.168.x.x:5000
+```
+
+### Problem: WebSocket connection fails
+
+```bash
+# Sprawdzenie Nginx WebSocket timeout
+docker logs messager-nginx | grep "proxy_read_timeout"
+
+# Weryfikacja JWT w query param
+# WebSocket URL: ws://localhost:5000/ws/sync?access_token=JWT_TOKEN
+
+# Sprawdzenie CORS headers
+curl -i -N \
+  -H "Connection: Upgrade" \
+  -H "Upgrade: websocket" \
+  -H "Authorization: Bearer YOUR_JWT" \
+  http://localhost:5000/ws/sync
+```
+
+### Problem: Database connection error
+
+```bash
+# Test połączenia do PostgreSQL
+psql -h localhost -U postgres -d messager -c "SELECT 1"
+
+# Sprawdzenie zmiennej POSTGRES_CONNECTION_STRING
+echo $POSTGRES_CONNECTION_STRING | grep -E "Host=|Port=|Database="
+
+# Logs PostgreSQL
+docker logs messager-db | tail -20
+```
+
+### Problem: Sender cannot send message (validation error)
+
+**Przyczyna**: Brak wymiany kluczy z odbiorcą.
+
+```csharp
+// Domain/PublicKey.cs — rzuca InvalidOperationException
+public Message SendMessage(string toPublicKey, byte[] encryptedContent, string messageHash)
+{
+    bool hasKeyExchangeForRecipient = _myKeyExchanges
+        .Any(x => x.ToPublicKey == toPublicKey);
+    
+    if (!hasKeyExchangeForRecipient)
+        throw new InvalidOperationException(
+            "Cannot send message without a key exchange from owner to recipient.");
+}
+```
+
+**Rozwiązanie**: Nadawca musi najpierw wykonać wymianę kluczy (Key Exchange).
+
+### Problem: Migration fails
+
+```bash
+# Dodanie toolingu EF Core (jeśli brakuje)
+dotnet tool install --global dotnet-ef
+
+# Walidacja stanu migracji
+dotnet ef database info
+
+# Ręczne tworzenie bazy
+dotnet ef database drop --force
+dotnet ef database update
+```
+
+### Problem: APK build fails (Docker android-builder)
+
+```bash
+# Sprawdzenie logów buildera
+docker logs messager-android-builder
+
+# Czysta kompilacja
+docker compose --profile release build --no-cache android-builder
+docker compose --profile release up android-builder
+
+# Sprawdzenie czy APK został wygenerowany
+ls -la releases/android/
+```
+
+### Problem: Rate limit 429 Too Many Requests
+
+```bash
+# Auth endpoints: 10 req/min per IP
+# Search endpoints: 30 req/min per IP
+
+# Sprawdzenie czy klient respektuje backoff
+# HTTP 429 Response-Header: Retry-After: 60
+
+# Dla testów — zmień limiter w Program.cs:
+options.AddPolicy("auth", p => p.WindowLimit(100).Window(TimeSpan.FromMinutes(1)));
+```
+
+---
+
+## 21. Wnioski
+
+Projekt Messager stanowi spójną, pełnostackową implementację komunikatora bezpiecznego z szyfrowaniem end-to-end, realizującą następujące cele inżynierskie:
+
+### 21.1 Architektura i separacja odpowiedzialności
+
+Wzorzec Clean Architecture skutecznie oddziela reguły biznesowe (Domain layer) od szczegółów implementacyjnych (Infrastructure). Przepływ zależności jest jednostronny i kontrolowany:
+
+```
+API → Application → Domain
+Infrastructure → Application → Domain
+```
+
+Podział na warstwy ułatwia testowanie, wymianę komponentów i pielęgnację kodu.
+
+### 21.2 Bezpieczeństwo kryptograficzne
+
+Projekt implementuje wielowarstwową strategię bezpieczeństwa:
+
+1. **Identyfikacja**: RSA 2048-bit z fingerprint SHA-512 jako globalny identyfikator
+2. **Uwierzytelnianie**: Challenge-response bez transmisji sekretu, RSA-SHA512 signature
+3. **E2EE**: Signal Protocol z forward secrecy, AES-256-GCM szyfrowanie wiadomości
+4. **Lokalna ochrona**: PBKDF2-SHA256 (150k iteracji) + AES-256-GCM dla klucza prywatnego
+5. **Zero-Knowledge**: Serwer nigdy nie posiada kluczy deszyfrujących, przechowuje wyłącznie ciphertext
+
+### 21.3 Praktyczne doświadczenie użytkownika
+
+- **Wieloprofilowe zarządzanie** — wiele tożsamości na jednym urządzeniu z izolacją danych
+- **Offline-first** — SQLite local cache, automatyczna synchronizacja po reconnect
+- **Real-time sync** — WebSocket do natychmiastowych powiadomień
+- **Biometric auth** — PIN + fingerprint/face unlock
+- **Auto-lock** — 5-minutowy timeout sesji dla ochrony klucza prywatnego
+
+### 21.4 Skalowalność i modularność
+
+Architektura modułowa ułatwia:
+- Zastąpienie in-memory pub/sub Redis Pub/Sub
+- Migrację na inny RDBMS (MySQL, SQL Server)
+- Zmianę biblioteki kryptograficznej
+- Dodanie nowych protokołów transportu (AMQP, gRPC)
+
+### 21.5 Status produkcyjny
+
+W obecnej formie projekt jest:
+- ✅ **Funkcjonalnie kompletny** — wszystkie rdzenne przepływy działają
+- ✅ **Architektonicznie solidny** — Clean Architecture, CQRS-style handlers
+- ✅ **Kryptograficznie wzmocniony** — Signal Protocol + RSA/AES
+- ⚠️ **Wymagający audytu** — przed wdrożeniem produkcyjnym
+
+Identyfikowane ograniczenia dotyczą głównie warstwy operacyjnej (brak migracji EF, brak testów automatycznych) i są typowe dla projektów w fazie DEV. Warstwa domenowa i kryptograficzna prezentują wysoką jakość umożliwiającą wdrożenie produkcyjne.
+
+### 21.6 Rekomendacje do wdrożenia
+
+| Priorytet | Działanie | Uzasadnienie |
+|---|---|---|
+| **Krytyczny** | Audyt bezpieczeństwa | Ocena przed wdrożeniem publicznym |
+| **Krytyczny** | EF Core migrations | `EnsureCreated` nie obsługuje zmian schematów |
+| **Wysoki** | Testy integracyjne | Walidacja API + crypto flows |
+| **Wysoki** | HTTPS enforcement | Disable HTTP w Kestrel |
+| **Wysoki** | Monitoring & logging | Detekt anomalii bezpieczeństwa |
+| **Średni** | Double Ratchet | Pełny Signal Protocol (DH ratchet) |
+| **Średni** | Multi-device support | X3DH z prekeys per device |
+| **Niski** | JWKS rotation | Bezpieczna rotacja JWT_SIGNING_KEY |
+
+---
+
+## 22. Słownik pojęć
 
 | Termin | Definicja |
 |---|---|
@@ -1289,9 +1646,13 @@ W obecnej formie projekt jest kompletny funkcjonalnie i gotowy do pracy jako baz
 | **RSA** | Asymetryczny algorytm kryptograficzny (Rivest–Shamir–Adleman) |
 | **RSA-OAEP** | RSA z schematem wypełniania OAEP (Optimal Asymmetric Encryption Padding) — bezpieczniejsza wariant szyfrowania RSA |
 | **SHA-512** | Secure Hash Algorithm — kryptograficzna funkcja skrótu produkująca 512-bitowy (128 hex) wynik |
+| **Signal Protocol** | Protokół E2EE z forward secrecy i break-in recovery, używany w Signal Messenger, WhatsApp i innych |
 | **SQLite** | Wbudowana, bezserwisowa baza danych — używana jako lokalny skład danych na kliencie mobilnym |
 | **WebSocket** | Protokół komunikacji dwukierunkowej w czasie rzeczywistym przez jedno połączenie TCP |
+| **X3DH** | Extended Triple Diffie-Hellman — protokół inicjalizacji sesji w Signal Protocol |
+| **Double Ratchet** | Algorytm w Signal Protocol łączący ratchet key derivation (kluczowe pochodne) i ratchet klucza publicznego (DH) |
 
 ---
 
 *Dokument wygenerowany na podstawie analizy kodu źródłowego repozytorium `c:\Users\Blazej\sources\Messager`. Data: 2026-06-09.*
+*Zaktualizowany w oparciu o README.md z nową strukturą i specyfikacją.*
