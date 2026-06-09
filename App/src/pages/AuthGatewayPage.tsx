@@ -110,6 +110,8 @@ export function AuthGatewayPage({
       <View style={styles.devModeContainer}>
         <DevModeToggle />
       </View>
+
+      <AuthCard>
         <Text style={styles.sectionTitle}>Nowy profil</Text>
         <FormField
           label="Nazwa profilu"
