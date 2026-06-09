@@ -51,6 +51,8 @@ import {
 } from '../types/messaging';
 import { StoredRegistration } from '../types/registration';
 import { usePrivateKeySession } from '../context/PrivateKeySessionContext';
+import { useError } from '../context/ErrorOverlayContext';
+import { extractErrorMessage, createUserFriendlyMessage } from '../utils/errorHandler';
 
 type MessagingPageProps = {
   savedRegistration: StoredRegistration;
@@ -128,6 +130,7 @@ export function MessagingPage({
   const ownerFingerprint = savedRegistration.fingerprintSha512;
   const insets = useSafeAreaInsets();
   const { storageKey } = usePrivateKeySession();
+  const { showError, isDeveloperMode } = useError();
 
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('Połączono. Możesz wyszukiwać profile.');
@@ -303,11 +306,10 @@ export function MessagingPage({
       })
       .catch(error => {
         if (!cancelled) {
-          setStatus(
-            error instanceof Error
-              ? error.message
-              : 'Nie udało się zainicjalizować synchronizacji.',
-          );
+          const apiError = extractErrorMessage(error);
+          const userMessage = isDeveloperMode ? apiError.message : createUserFriendlyMessage(apiError);
+          showError(userMessage, apiError.code, isDeveloperMode ? apiError.details : undefined);
+          setStatus(userMessage);
         }
       })
       .finally(() => {
@@ -344,18 +346,20 @@ export function MessagingPage({
 
         void applyDelta(delta, conversationFingerprint).catch(error => {
           if (!closed) {
-            setStatus(
-              error instanceof Error
-                ? error.message
-                : 'Live sync nie powiodl sie.',
-            );
+            const apiError = extractErrorMessage(error);
+            const userMessage = isDeveloperMode ? apiError.message : createUserFriendlyMessage(apiError);
+            showError(userMessage, apiError.code, isDeveloperMode ? apiError.details : undefined);
+            setStatus(userMessage);
           }
         });
       };
 
       const handleError = (error: Error) => {
         if (!closed) {
-          setStatus(error.message);
+          const apiError = extractErrorMessage(error);
+          const userMessage = isDeveloperMode ? apiError.message : createUserFriendlyMessage(apiError);
+          showError(userMessage, apiError.code, isDeveloperMode ? apiError.details : undefined);
+          setStatus(userMessage);
         }
       };
 
@@ -449,11 +453,10 @@ export function MessagingPage({
       );
       setStatus('Synchronizacja zakończona.');
     } catch (error) {
-      setStatus(
-        error instanceof Error
-          ? error.message
-          : 'Synchronizacja nie powiodła się.',
-      );
+      const apiError = extractErrorMessage(error);
+      const userMessage = isDeveloperMode ? apiError.message : createUserFriendlyMessage(apiError);
+      showError(userMessage, apiError.code, isDeveloperMode ? apiError.details : undefined);
+      setStatus(userMessage);
     } finally {
       setBusy(false);
     }
@@ -485,11 +488,10 @@ export function MessagingPage({
       await refreshConversationPreviews();
       setStatus(`Znaleziono ${filtered.length} profili.`);
     } catch (error) {
-      setStatus(
-        error instanceof Error
-          ? error.message
-          : 'Wyszukiwanie nie powiodło się.',
-      );
+      const apiError = extractErrorMessage(error);
+      const userMessage = isDeveloperMode ? apiError.message : createUserFriendlyMessage(apiError);
+      showError(userMessage, apiError.code, isDeveloperMode ? apiError.details : undefined);
+      setStatus(userMessage);
     } finally {
       setBusy(false);
     }
@@ -560,11 +562,10 @@ export function MessagingPage({
       setComposerText('');
       setStatus('Wiadomość wysłana.');
     } catch (error) {
-      setStatus(
-        error instanceof Error
-          ? error.message
-          : 'Nie udało się wysłać wiadomości.',
-      );
+      const apiError = extractErrorMessage(error);
+      const userMessage = isDeveloperMode ? apiError.message : createUserFriendlyMessage(apiError);
+      showError(userMessage, apiError.code, isDeveloperMode ? apiError.details : undefined);
+      setStatus(userMessage);
     } finally {
       setBusy(false);
     }
