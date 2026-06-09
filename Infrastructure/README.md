@@ -20,7 +20,9 @@ Infrastructure/
 │       ├── PublicKeyRecord.cs
 │       ├── MessageRecord.cs
 │       ├── KeyExchangeRecord.cs
-│       └── LoginChallengeRecord.cs
+│       ├── LoginChallengeRecord.cs
+│       ├── SignedPreKeyRecord.cs    # Signal Protocol signed pre-key
+│       └── OneTimePreKeyRecord.cs  # Signal Protocol one-time pre-key
 └── Services/
     ├── PublicKeyRepository.cs       # IPublicKeyRepository → EF Core
     ├── LoginService.cs              # ILoginService → challenge verify + JWT issue
@@ -43,6 +45,8 @@ The schema is created automatically on API startup via `EnsureCreated()`. There 
 | `messages` | `(from_public_key, to_public_key, message_hash)` | Encrypted messages; deduplication via SHA-512 hash of ciphertext |
 | `key_exchanges` | `(from_public_key, to_public_key)` | Chain key seeds; one per directed conversation pair |
 | `login_challenges` | `id` (GUID) | Short-lived sign challenges (5-minute TTL, single-use) |
+| `signed_prekeys` | `fingerprint_sha512` | Signal Protocol signed pre-key per user |
+| `one_time_prekeys` | `id` | Signal Protocol one-time pre-keys (consumed on use) |
 
 Indexes are defined on foreign keys and `created_at` columns to support efficient delta sync queries.
 

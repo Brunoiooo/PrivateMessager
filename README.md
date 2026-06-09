@@ -50,10 +50,12 @@ Domain                                           Infrastructure
 ### Full stack with Docker
 
 ```bash
-docker-compose up -d
+cp .env.example .env
+# Edit .env — set POSTGRES_PASSWORD and JWT_SIGNING_KEY
+docker compose up -d
 ```
 
-Starts PostgreSQL and the API on `http://localhost:8080`.
+Starts PostgreSQL, the API, and an nginx reverse proxy. Default access: `https://localhost` (SSL enabled) or `http://localhost:80` (when `NGINX_USE_SSL=false`).
 
 ### Backend only (development)
 
@@ -61,7 +63,7 @@ Starts PostgreSQL and the API on `http://localhost:8080`.
 dotnet run --project API/API.csproj
 ```
 
-Requires a running PostgreSQL instance. Configure the connection string via environment variables or `appsettings.Development.json`.
+Requires a running PostgreSQL instance. Set `POSTGRES_CONNECTION_STRING` and `JWT_SIGNING_KEY` environment variables.
 
 ### Mobile app
 
@@ -86,8 +88,12 @@ See [`App/README.md`](App/README.md) for full setup instructions.
 | GET | `/api/messages/` | Fetch messages from a peer |
 | POST | `/api/key-exchanges/` | Publish key exchange |
 | GET | `/api/key-exchanges/` | Fetch key exchanges |
+| POST | `/api/pre-keys/signed` | Upload signed pre-key |
+| POST | `/api/pre-keys/one-time` | Upload one-time pre-keys |
+| GET | `/api/pre-keys/bundle` | Fetch pre-key bundle for a peer |
 | GET | `/api/sync/delta` | Incremental sync (HTTP polling) |
 | GET | `/ws/sync` | Incremental sync (WebSocket) |
+| GET | `/ws/conversations/{peerFingerprint}` | Conversation stream (WebSocket) |
 
 ## User Flow
 
@@ -114,6 +120,21 @@ Periodic delta sync (HTTP or WebSocket)
 | [`Infrastructure`](Infrastructure/README.md) | Database, persistence, crypto services |
 | [`API`](API/README.md) | HTTP endpoints, JWT, WebSocket |
 | [`App`](App/README.md) | React Native mobile client |
+
+## Environment Variables
+
+See `.env.example` for all variables. Key ones:
+
+| Variable | Description |
+|----------|-------------|
+| `POSTGRES_PASSWORD` | PostgreSQL password |
+| `JWT_SIGNING_KEY` | HMAC-SHA256 secret (min 32 chars) |
+| `MESSAGE_TTL_DAYS` | Days before undelivered messages are deleted (default: 30) |
+| `APP_PORT` | nginx listen port (default: 443) |
+| `APP_DOMAIN` | Public domain/IP (default: localhost) |
+| `NGINX_USE_SSL` | Enable TLS via nginx (default: true) |
+| `SSL_CA_CERT_FILE` | CA certificate for Android builder |
+| `MESSAGER_API_BASE_URL` | API URL baked into the APK |
 
 ## Requirements
 

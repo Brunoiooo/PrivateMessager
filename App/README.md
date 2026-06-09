@@ -168,13 +168,17 @@ POSTGRES_DB=messager
 POSTGRES_USER=messager
 POSTGRES_PASSWORD=changeme
 
-# API
-API_BIND_IP=0.0.0.0
-API_BIND_PORT=8080
+# JWT
 JWT_SIGNING_KEY=<min-32-char-secret>
 
+# Nginx
+APP_PORT=443
+APP_DOMAIN=localhost
+NGINX_USE_SSL=true
+
 # Mobile — URL the APK will use to reach the API
-MESSAGER_API_BASE_URL=http://<your-server-ip>:8080
+MESSAGER_API_BASE_URL=https://<your-server-ip>:443
+SSL_CA_CERT_FILE=ca.pem
 ```
 
 ### Run the build
